@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.REQUEST_COMPANION_RUN_IN_BACKGROUND" />
     <uses-permission android:name="android.permission.health.WRITE_WEIGHT" />
     <queries><package android:name="com.google.android.apps.healthdata" /></queries>
-    <application android:label="S200 Bridge" android:allowBackup="false" android:theme="@android:style/Theme.Material.Light">
+    <application android:label="S200 Bridge" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name=".SetupActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>

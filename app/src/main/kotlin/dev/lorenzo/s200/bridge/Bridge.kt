@@ -36,6 +36,7 @@ object Bridge {
                 )
                 HealthConnectClient.getOrCreate(ctx).insertRecords(listOf(rec))
                 cfg.lastTs = m.timestampEpochSec
+                cfg.addReading(m.timestampEpochSec, m.weightKg, m.profileId)
                 cfg.lastStatus = "wrote ${m.weightKg} kg @ $t (profile ${m.profileId})"
                 Log.i(TAG, cfg.lastStatus)
             }
