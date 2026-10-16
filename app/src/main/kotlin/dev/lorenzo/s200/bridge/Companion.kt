@@ -14,14 +14,14 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import dev.lorenzo.s200.ScaleMac
 import kotlinx.coroutines.*
 
-/** Optional fast path: CDM's system-server BLE presence scan binds our service when the scale advertises. */
 object Companion {
-    fun associate(act: Activity, mac: String, onResult: (String) -> Unit) {
+    fun associate(act: Activity, mac: ScaleMac, onResult: (String) -> Unit) {
         val cdm = act.getSystemService(CompanionDeviceManager::class.java) ?: return onResult("no CDM")
         val filter = BluetoothLeDeviceFilter.Builder()
-            .setScanFilter(ScanFilter.Builder().setDeviceAddress(mac).build())
+            .setScanFilter(ScanFilter.Builder().setDeviceAddress(mac.address).build())
             .build()
         val req = AssociationRequest.Builder().addDeviceFilter(filter).setSingleDevice(true).build()
         cdm.associate(req, act.mainExecutor, object : CompanionDeviceManager.Callback() {
@@ -39,20 +39,20 @@ object Companion {
     @SuppressLint("MissingPermission")
     fun observe(ctx: Context): String {
         val cdm = ctx.getSystemService(CompanionDeviceManager::class.java) ?: return "no CDM"
-        val id = Config(ctx).associationId
+        val cfg = Config(ctx)
+        val id = cfg.associationId
         if (id < 0 || cdm.myAssociations.none { it.id == id }) return "not associated"
         return try {
             if (Build.VERSION.SDK_INT >= 36) {
                 cdm.startObservingDevicePresence(ObservingDevicePresenceRequest.Builder().setAssociationId(id).build())
             } else {
-                @Suppress("DEPRECATION") cdm.startObservingDevicePresence(Config(ctx).mac)
+                @Suppress("DEPRECATION") cdm.startObservingDevicePresence(cfg.macText)
             }
             "observing presence"
         } catch (e: Exception) { "observe failed: ${e.message}" }
     }
 }
 
-/** Bound by the system while the scale is in BLE range; runs a short targeted scan to grab the encrypted adv. */
 class ScaleCompanionService : CompanionDeviceService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val main = Handler(Looper.getMainLooper())
@@ -72,7 +72,9 @@ class ScaleCompanionService : CompanionDeviceService() {
     @SuppressLint("MissingPermission")
     private fun burstScan() {
         if (cb != null) return
-        val cfg = Config(this); if (!cfg.configured) return
+        val cfg = Config(this)
+        val mac = cfg.mac ?: return
+        if (cfg.key == null) return
         val scanner = getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner ?: return
         val c = object : ScanCallback() {
             override fun onScanResult(type: Int, r: ScanResult) {
@@ -80,15 +82,15 @@ class ScaleCompanionService : CompanionDeviceService() {
                 val mac = r.device.address
                 scope.launch {
                     runCatching { Bridge.handle(this@ScaleCompanionService, mac, data) }
-                        .onFailure { Log.w("S200Companion", "write failed, retry queued", it); ScanReceiver.enqueueRetry(applicationContext, mac, data) }
+                        .onFailure { Log.w("S200Companion", "write failed, retry queued", it); enqueueRetry(applicationContext, mac, data) }
                 }
             }
         }
         cb = c
         try {
-            scanner.startScan(listOf(Scanner.filter(cfg.mac)),
+            scanner.startScan(listOf(Scanner.filter(mac)),
                 ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), c)
-            main.postDelayed({ stopScan() }, 60_000) // cap the burst; scale only advertises for seconds
+            main.postDelayed({ stopScan() }, BURST_SCAN_MS)
         } catch (e: SecurityException) { cb = null }
     }
 
@@ -96,6 +98,10 @@ class ScaleCompanionService : CompanionDeviceService() {
     private fun stopScan() {
         val c = cb ?: return; cb = null
         runCatching { getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner?.stopScan(c) }
+    }
+
+    private companion object {
+        const val BURST_SCAN_MS = 60_000L
     }
 
     override fun onDestroy() { stopScan(); scope.cancel(); super.onDestroy() }
