@@ -33,17 +33,15 @@ class ScanReceiver : BroadcastReceiver() {
             } finally { pending.finish() }
         }
     }
+}
 
-    companion object {
-    fun enqueueRetry(ctx: Context, mac: String, data: ByteArray) {
-        val req = OneTimeWorkRequestBuilder<RetryWorker>()
-            .setInputData(workDataOf("mac" to mac, "data" to data))
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, java.time.Duration.ofMinutes(1))
-            .build()
-        WorkManager.getInstance(ctx).enqueueUniqueWork("write-${data.contentHashCode()}", ExistingWorkPolicy.KEEP, req)
-    }
-    }
+fun enqueueRetry(ctx: Context, mac: String, data: ByteArray) {
+    val req = OneTimeWorkRequestBuilder<RetryWorker>()
+        .setInputData(workDataOf("mac" to mac, "data" to data))
+        .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, java.time.Duration.ofMinutes(1))
+        .build()
+    WorkManager.getInstance(ctx).enqueueUniqueWork("write-${data.contentHashCode()}", ExistingWorkPolicy.KEEP, req)
 }
 
 class RetryWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {

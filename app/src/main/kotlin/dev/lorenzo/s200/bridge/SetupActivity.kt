@@ -38,6 +38,8 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.WeightRecord
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import dev.lorenzo.s200.BindKey
+import dev.lorenzo.s200.ScaleMac
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -65,13 +67,13 @@ class SetupActivity : ComponentActivity() {
 fun BridgeTheme(content: @Composable () -> Unit) {
     val ctx = LocalContext.current
     val scheme = if (isSystemInDarkTheme()) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
-    MaterialTheme(colorScheme = scheme, typography = Typography(), content = content)
+    MaterialTheme(colorScheme = scheme, content = content)
 }
 
 private data class UiState(
     val configured: Boolean = false, val scan: String = "-", val presence: String = "-",
     val bt: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val associated: Boolean = false,
-    val last: String = "-", val history: List<String> = emptyList(),
+    val history: List<Reading> = emptyList(),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,7 +95,7 @@ private fun BridgeScreen(act: SetupActivity) {
             configured = cfg.configured, scan = scan, presence = presence,
             bt = act.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED,
             hc = hc, battery = act.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(act.packageName),
-            associated = presence == "observing presence", last = cfg.lastStatus, history = cfg.history,
+            associated = presence == "observing presence", history = cfg.history,
         )
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refresh() }
@@ -116,23 +118,23 @@ private fun BridgeScreen(act: SetupActivity) {
         ) {
             item { StatusCard(state) }
             item {
-                SetupCard(cfg) { msg = if (Config(act).configured) "Saved" else "Check key (32 hex) and MAC"; refresh() }
+                SetupCard(cfg) { msg = if (cfg.configured) "Saved" else "Check key (32 hex) and MAC"; refresh() }
             }
             item {
-                SectionCard("Permissions", Icons.Outlined.Security) {
-                    PermRow(Icons.Outlined.Bluetooth, "Bluetooth scan", "Find the scale's broadcasts", state.bt, "Grant") {
+                SectionCard("Permissions", Icons.Outlined.Lock) {
+                    PermRow(Icons.Outlined.Search, "Bluetooth scan", "Find the scale's broadcasts", state.bt, "Grant") {
                         btLauncher.launch(Manifest.permission.BLUETOOTH_SCAN)
                     }
-                    PermRow(Icons.Outlined.MonitorWeight, "Health Connect", "Write weight records",
+                    PermRow(Icons.Outlined.Favorite, "Health Connect", "Write weight records",
                         state.hc == true, if (state.hc == null) "Unavailable" else "Grant", enabled = state.hc != null) {
                         hcLauncher.launch(HC_PERMS)
                     }
-                    PermRow(Icons.Outlined.BatteryChargingFull, "Battery unrestricted", "Reliable background delivery", state.battery, "Open") {
+                    PermRow(Icons.Outlined.Settings, "Battery unrestricted", "Reliable background delivery", state.battery, "Open") {
                         act.askUnrestricted()
                     }
-                    PermRow(Icons.Outlined.Link, "Companion association", "Optional · step on the scale first",
+                    PermRow(Icons.Outlined.Share, "Companion association", "Optional · step on the scale first",
                         state.associated, "Associate", enabled = state.configured) {
-                        Companion.associate(act, cfg.mac) { msg = it; refresh() }
+                        cfg.mac?.let { mac -> Companion.associate(act, mac) { msg = it; refresh() } }
                     }
                 }
             }
@@ -157,7 +159,7 @@ private fun SectionCard(title: String, icon: ImageVector, content: @Composable C
 
 @Composable
 private fun StatusCard(s: UiState) {
-    val lastReading = s.history.firstOrNull()?.let(::parseReading)
+    val lastReading = s.history.firstOrNull()
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -165,10 +167,10 @@ private fun StatusCard(s: UiState) {
         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Last weight", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             Text(
-                lastReading?.let { "%.2f kg".format(it.second) } ?: "—",
+                lastReading?.let { "%.2f kg".format(it.kg) } ?: "—",
                 style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
-            Text(lastReading?.let { fmtTime(it.first) } ?: "No readings yet",
+            Text(lastReading?.let { fmtTime(it.epochSec) } ?: "No readings yet",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             Spacer(Modifier.height(4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -183,25 +185,25 @@ private fun StatusCard(s: UiState) {
 private fun StatusChip(label: String, ok: Boolean, detail: String) {
     AssistChip(
         onClick = {}, label = { Text("$label: $detail") },
-        leadingIcon = { Icon(if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline, null, Modifier.size(18.dp)) },
+        leadingIcon = { Icon(if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.Warning, null, Modifier.size(18.dp)) },
     )
 }
 
 @Composable
 private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
     var key by remember { mutableStateOf(cfg.keyHex) }
-    var mac by remember { mutableStateOf(cfg.mac) }
-    var profile by remember { mutableStateOf(cfg.profile.toString()) }
+    var mac by remember { mutableStateOf(cfg.macText) }
+    var profile by remember { mutableStateOf(cfg.profileSlot.toString()) }
     var showKey by remember { mutableStateOf(false) }
-    val keyOk = key.matches(Regex("[0-9a-fA-F]{32}"))
-    val macOk = mac.uppercase().matches(Regex("([0-9A-F]{2}:){5}[0-9A-F]{2}"))
-    SectionCard("Scale setup", Icons.Outlined.Tune) {
+    val keyOk = BindKey.parse(key) != null
+    val macOk = ScaleMac.parse(mac) != null
+    SectionCard("Scale setup", Icons.Outlined.Edit) {
         OutlinedTextField(
             key, { key = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Bind key") },
             supportingText = { Text("32 hex chars from Xiaomi cloud") }, isError = key.isNotEmpty() && !keyOk, singleLine = true,
             textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = { IconButton({ showKey = !showKey }) { Icon(if (showKey) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, "Toggle") } },
+            trailingIcon = { TextButton({ showKey = !showKey }) { Text(if (showKey) "Hide" else "Show") } },
         )
         OutlinedTextField(
             mac, { mac = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Scale MAC") },
@@ -215,7 +217,7 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
         )
         Button(
             onClick = {
-                cfg.keyHex = key; cfg.mac = mac.uppercase(); cfg.profile = profile.toIntOrNull() ?: -1; onSaved()
+                cfg.keyHex = key; cfg.macText = mac.uppercase(); cfg.profileSlot = profile.toIntOrNull() ?: -1; onSaved()
             },
             enabled = keyOk && macOk, modifier = Modifier.align(Alignment.End),
         ) { Text("Save & arm") }
@@ -237,9 +239,8 @@ private fun PermRow(icon: ImageVector, title: String, sub: String, granted: Bool
 }
 
 @Composable
-private fun HistoryCard(history: List<String>) {
-    SectionCard("Recent readings", Icons.Outlined.History) {
-        val rows = history.mapNotNull(::parseReading)
+private fun HistoryCard(rows: List<Reading>) {
+    SectionCard("Recent readings", Icons.Outlined.DateRange) {
         if (rows.isEmpty()) Text("Step on the scale. Readings appear here once written to Health Connect.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         rows.forEachIndexed { i, (ts, kg, prof) ->
@@ -254,9 +255,6 @@ private fun HistoryCard(history: List<String>) {
         }
     }
 }
-
-private fun parseReading(s: String): Triple<Long, Double, Int>? =
-    s.split("|").takeIf { it.size == 3 }?.let { (a, b, c) -> runCatching { Triple(a.toLong(), b.toDouble(), c.toInt()) }.getOrNull() }
 
 private val FMT = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
 private fun fmtTime(ts: Long) = FMT.format(Instant.ofEpochSecond(ts).atZone(ZoneId.systemDefault()))
