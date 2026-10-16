@@ -121,18 +121,18 @@ private fun BridgeScreen(act: SetupActivity) {
                 SetupCard(cfg) { msg = if (cfg.configured) "Saved" else "Check key (32 hex) and MAC"; refresh() }
             }
             item {
-                SectionCard("Permissions", Icons.Outlined.Security) {
-                    PermRow(Icons.Outlined.Bluetooth, "Bluetooth scan", "Find the scale's broadcasts", state.bt, "Grant") {
+                SectionCard("Permissions", Icons.Outlined.Lock) {
+                    PermRow(Icons.Outlined.Search, "Bluetooth scan", "Find the scale's broadcasts", state.bt, "Grant") {
                         btLauncher.launch(Manifest.permission.BLUETOOTH_SCAN)
                     }
-                    PermRow(Icons.Outlined.MonitorWeight, "Health Connect", "Write weight records",
+                    PermRow(Icons.Outlined.Favorite, "Health Connect", "Write weight records",
                         state.hc == true, if (state.hc == null) "Unavailable" else "Grant", enabled = state.hc != null) {
                         hcLauncher.launch(HC_PERMS)
                     }
-                    PermRow(Icons.Outlined.BatteryChargingFull, "Battery unrestricted", "Reliable background delivery", state.battery, "Open") {
+                    PermRow(Icons.Outlined.Settings, "Battery unrestricted", "Reliable background delivery", state.battery, "Open") {
                         act.askUnrestricted()
                     }
-                    PermRow(Icons.Outlined.Link, "Companion association", "Optional · step on the scale first",
+                    PermRow(Icons.Outlined.Share, "Companion association", "Optional · step on the scale first",
                         state.associated, "Associate", enabled = state.configured) {
                         cfg.mac?.let { mac -> Companion.associate(act, mac) { msg = it; refresh() } }
                     }
@@ -185,7 +185,7 @@ private fun StatusCard(s: UiState) {
 private fun StatusChip(label: String, ok: Boolean, detail: String) {
     AssistChip(
         onClick = {}, label = { Text("$label: $detail") },
-        leadingIcon = { Icon(if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline, null, Modifier.size(18.dp)) },
+        leadingIcon = { Icon(if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.Warning, null, Modifier.size(18.dp)) },
     )
 }
 
@@ -197,13 +197,13 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
     var showKey by remember { mutableStateOf(false) }
     val keyOk = BindKey.parse(key) != null
     val macOk = ScaleMac.parse(mac) != null
-    SectionCard("Scale setup", Icons.Outlined.Tune) {
+    SectionCard("Scale setup", Icons.Outlined.Edit) {
         OutlinedTextField(
             key, { key = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Bind key") },
             supportingText = { Text("32 hex chars from Xiaomi cloud") }, isError = key.isNotEmpty() && !keyOk, singleLine = true,
             textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = { IconButton({ showKey = !showKey }) { Icon(if (showKey) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, "Toggle") } },
+            trailingIcon = { TextButton({ showKey = !showKey }) { Text(if (showKey) "Hide" else "Show") } },
         )
         OutlinedTextField(
             mac, { mac = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Scale MAC") },
@@ -240,7 +240,7 @@ private fun PermRow(icon: ImageVector, title: String, sub: String, granted: Bool
 
 @Composable
 private fun HistoryCard(rows: List<Reading>) {
-    SectionCard("Recent readings", Icons.Outlined.History) {
+    SectionCard("Recent readings", Icons.Outlined.DateRange) {
         if (rows.isEmpty()) Text("Step on the scale. Readings appear here once written to Health Connect.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         rows.forEachIndexed { i, (ts, kg, prof) ->
