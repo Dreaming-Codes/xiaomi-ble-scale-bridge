@@ -38,7 +38,7 @@ object WeighInNotifier {
             .format(Instant.ofEpochSecond(r.epochSec).atZone(ZoneId.systemDefault()))
         val text = listOfNotNull(time, prev?.let { formatDelta(r.kg, it.kg) }).joinToString(" · ")
         nm.notify(r.epochSec.toInt(), Notification.Builder(ctx, CHANNEL)
-            .setSmallIcon(R.drawable.ic_scale)
+            .setSmallIcon(R.drawable.ic_stat_scale)
             .setContentTitle(formatKg(r.kg))
             .setContentText(text)
             .setWhen(r.epochSec * 1000).setShowWhen(true)
