@@ -169,13 +169,14 @@ def s200_session(token: bytes, app_rand: bytes, dev_rand: bytes) -> tuple[Snoop,
     seg_send(s, False, H_AVDTP, 0x0C, D.hmac_sha256(k.dev_key, dev_rand + app_rand))
     seg_send(s, True, H_AVDTP, 0x0A, D.hmac_sha256(k.app_key, app_rand + dev_rand))
     s.notify(H_UPNP, b"\x21\x00\x00\x00")
-    sync_json = b'{"unit":0,"time":1792500000,"user":[{"id":1,"h":180}]}'
+    sync_json = (b'{"mid":1234567890,"duid":1,"uc":1,"ow":1,"unit":0,"time":1792500000,'
+                 b'"ud":[{"duid":1,"ut":0,"age":30,"sex":1,"hi":180,"wt":7500}]}')
     frames = [
         (True, spec(1, 0x05, bytes([7]) + struct.pack("<HBH", 1, 1, 1) + tv(10, sync_json))),
         (False, spec(1, 0x06, bytes([7]) + struct.pack("<Hh", 1, 0) + bytes([0]))),
         (True, spec(2, 0x05, bytes([6]) + struct.pack("<HB", 1, 0))),
         (False, spec(2, 0x06, bytes([6]) + struct.pack("<Hh", 1, 0) + bytes([1]) + struct.pack("<H", 3) + tv(1, b"\x01"))),
-        (False, spec(9, 0x07, bytes([6]) + struct.pack("<HBH", 1, 1, 1) + tv(10, b"1,7235,1792499000"))),
+        (False, spec(9, 0x07, bytes([6]) + struct.pack("<HBH", 1, 1, 1) + tv(10, b"1,1234567890,1,7235,0,1792499000"))),
         (True, spec(3, 0x05, bytes([6]) + struct.pack("<HBH", 2, 1, 2) + tv(10, b"1"))),
         (False, spec(3, 0x06, bytes([6]) + struct.pack("<Hh", 2, 0) + bytes([0]))),
     ]
@@ -204,6 +205,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual([pt for _, pt in stats["spec"]], pts)
         self.assertIn("ACTION 7.a1(sync) [7.p1(json-string)=string:", out)
         self.assertIn("EVENT 6.e1(report-offline-data)", out)
+        self.assertIn("offline: idx=1 duid=1 72.35 kg status=0 t=1792499000", out)
         self.assertIn("ACTION 6.a2(comfirm-offline-data) [6.p2(idx-string)=string:\"1\"]", out)
         self.assertIn("h0x001c/ctrl-rx", out)
         self.assertNotIn(self.TOKEN.hex(), out)
@@ -247,6 +249,14 @@ class EndToEnd(unittest.TestCase):
         got = [pt.hex() for _, pt in stats["spec"]]
         self.assertEqual(got, [p for _, _, p in HOTO_WRITE] + [p for _, _, p in HOTO_NOTIFY])
         self.assertIn("miot.ble-rx", out)
+
+
+class OfflineRecords(unittest.TestCase):
+    def test_plugin_record_format(self):
+        recs = D.offline_records("12,1234567890,1,7235,0,1792499000_13,0,0,7180,2,1792585400")
+        self.assertEqual([r["idx"] for r in recs], [12, 13])
+        self.assertEqual(recs[1]["weight"], 71.8)
+        self.assertEqual(D.offline_records("garbage"), [])
 
 
 class TokenLoading(unittest.TestCase):

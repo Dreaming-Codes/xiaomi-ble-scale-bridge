@@ -7,15 +7,18 @@ import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.metadata.Device
 import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.units.Mass
+import dev.lorenzo.s200.OfflineRecord
 import dev.lorenzo.s200.S200Parser
 import dev.lorenzo.s200.ScaleMac
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
+import kotlin.math.abs
 
 object Bridge {
     private const val TAG = "S200Bridge"
-    private val lock = Mutex() // receiver + companion service may race
+    private const val SAME_READING_SEC = 5
+    private val lock = Mutex() // receiver, companion service and ack worker may race
 
     /** Throws on HC failure so the caller can retry; clientRecordId makes a retried insert idempotent. */
     suspend fun handle(ctx: Context, address: String, data: ByteArray) = lock.withLock {
@@ -28,23 +31,42 @@ object Bridge {
                 val m = r.m
                 if (cfg.profile.let { it != null && it != m.profileId }) return@withLock
                 if (m.timestampEpochSec <= cfg.lastTs) return@withLock
-                val t = Instant.ofEpochSecond(m.timestampEpochSec)
-                val rec = WeightRecord(
-                    time = t, zoneOffset = null, weight = Mass.kilograms(m.weightKg),
-                    metadata = Metadata.autoRecorded(
-                        device = Device(type = Device.TYPE_SCALE, manufacturer = "Xiaomi", model = "MJTZC02YM"),
-                        clientRecordId = "s200-${m.timestampEpochSec}-${m.profileId}", clientRecordVersion = 1,
-                    ),
-                )
-                HealthConnectClient.getOrCreate(ctx).insertRecords(listOf(rec))
-                cfg.lastTs = m.timestampEpochSec
                 val reading = Reading(m.timestampEpochSec, m.weightKg, m.profileId)
-                val prev = cfg.history.firstOrNull { it.profile == m.profileId }
-                cfg.addReading(reading)
-                cfg.lastStatus = "wrote ${m.weightKg} kg @ $t (profile ${m.profileId})"
-                Log.i(TAG, cfg.lastStatus)
-                runCatching { WeighInNotifier.post(ctx, reading, prev) }.onFailure { Log.w(TAG, "notify failed", it) }
+                write(ctx, cfg, listOf(reading))
+                ScaleAck.enqueue(ctx)
             }
         }
     }
+
+    suspend fun storeOfflineReturningConfirmable(ctx: Context, records: List<OfflineRecord>): List<Int> = lock.withLock {
+        val cfg = Config(ctx)
+        val mine = records.filter { cfg.profile == null || it.duid == cfg.profile }
+        val known = cfg.history.map { it.epochSec }
+        val fresh = mine
+            .filter { it.weightKg > 0 && known.none { k -> abs(k - it.epochSec) <= SAME_READING_SEC } }
+            .distinctBy { it.epochSec }
+            .map { Reading(it.epochSec, it.weightKg, it.duid) }
+        if (fresh.isNotEmpty()) write(ctx, cfg, fresh)
+        mine.map { it.idx }
+    }
+
+    private suspend fun write(ctx: Context, cfg: Config, readings: List<Reading>) {
+        HealthConnectClient.getOrCreate(ctx).insertRecords(readings.map(::weightRecord))
+        val latest = readings.maxBy { it.epochSec }
+        val prev = cfg.history.filter { it.profile == latest.profile && it.epochSec < latest.epochSec }.maxByOrNull { it.epochSec }
+        readings.forEach(cfg::addReading)
+        if (latest.epochSec > cfg.lastTs) cfg.lastTs = latest.epochSec
+        cfg.lastStatus = "wrote ${latest.kg} kg @ ${Instant.ofEpochSecond(latest.epochSec)} (profile ${latest.profile})" +
+            if (readings.size > 1) " +${readings.size - 1} more" else ""
+        Log.i(TAG, cfg.lastStatus)
+        runCatching { WeighInNotifier.post(ctx, latest, prev) }.onFailure { Log.w(TAG, "notify failed", it) }
+    }
+
+    private fun weightRecord(r: Reading) = WeightRecord(
+        time = Instant.ofEpochSecond(r.epochSec), zoneOffset = null, weight = Mass.kilograms(r.kg),
+        metadata = Metadata.autoRecorded(
+            device = Device(type = Device.TYPE_SCALE, manufacturer = "Xiaomi", model = "MJTZC02YM"),
+            clientRecordId = "s200-${r.epochSec}-${r.profile}", clientRecordVersion = 1,
+        ),
+    )
 }

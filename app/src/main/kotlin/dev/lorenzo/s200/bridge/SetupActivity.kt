@@ -39,6 +39,7 @@ import androidx.health.connect.client.records.WeightRecord
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import dev.lorenzo.s200.BindKey
+import dev.lorenzo.s200.MiToken
 import dev.lorenzo.s200.ScaleMac
 import java.time.Instant
 import java.time.ZoneId
@@ -72,7 +73,7 @@ fun BridgeTheme(content: @Composable () -> Unit) {
 
 private data class UiState(
     val configured: Boolean = false, val scan: String = "-", val presence: String = "-",
-    val bt: Boolean = false, val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val associated: Boolean = false,
+    val bt: Boolean = false, val connect: Boolean = false, val tokenSet: Boolean = false, val ack: String = "-", val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val associated: Boolean = false,
     val history: List<Reading> = emptyList(),
 )
 
@@ -94,6 +95,8 @@ private fun BridgeScreen(act: SetupActivity) {
         state = UiState(
             configured = cfg.configured, scan = scan, presence = presence,
             bt = act.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED,
+            connect = act.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED,
+            tokenSet = cfg.token != null, ack = cfg.ackStatus,
             notify = act.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
             hc = hc, battery = act.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(act.packageName),
             associated = presence == "observing presence", history = cfg.history,
@@ -125,6 +128,10 @@ private fun BridgeScreen(act: SetupActivity) {
                 SectionCard("Permissions", Icons.Outlined.Lock) {
                     PermRow(Icons.Outlined.Search, "Bluetooth scan", "Find the scale's broadcasts", state.bt, "Grant") {
                         permLauncher.launch(Manifest.permission.BLUETOOTH_SCAN)
+                    }
+                    PermRow(Icons.Outlined.Refresh, "Bluetooth connect", "Acknowledge readings so the scale stops blinking",
+                        state.connect, "Grant", enabled = state.tokenSet) {
+                        permLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
                     }
                     PermRow(Icons.Outlined.Notifications, "Notifications", "Show each new weigh-in", state.notify, "Grant") {
                         permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -180,6 +187,7 @@ private fun StatusCard(s: UiState) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusChip("Scan", s.scan.startsWith("armed"), s.scan)
                 StatusChip("Presence", s.presence == "observing presence", s.presence)
+                if (s.tokenSet) StatusChip("Scale ack", s.ack.contains("acked"), s.ack)
             }
         }
     }
@@ -198,8 +206,11 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
     var key by remember { mutableStateOf(cfg.keyHex) }
     var mac by remember { mutableStateOf(cfg.macText) }
     var profile by remember { mutableStateOf(cfg.profileSlot.toString()) }
+    var token by remember { mutableStateOf(cfg.tokenHex) }
     var showKey by remember { mutableStateOf(false) }
+    var showToken by remember { mutableStateOf(false) }
     val keyOk = BindKey.parse(key) != null
+    val tokenOk = token.isEmpty() || MiToken.parse(token) != null
     val macOk = ScaleMac.parse(mac) != null
     SectionCard("Scale setup", Icons.Outlined.Edit) {
         OutlinedTextField(
@@ -215,15 +226,23 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
             textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
         )
         OutlinedTextField(
+            token, { token = it.trim() }, Modifier.fillMaxWidth(), label = { Text("BLE token (optional)") },
+            supportingText = { Text("24 hex chars from Xiaomi cloud · lets the app clear the scale's sync icon") },
+            isError = !tokenOk, singleLine = true,
+            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+            visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = { TextButton({ showToken = !showToken }) { Text(if (showToken) "Hide" else "Show") } },
+        )
+        OutlinedTextField(
             profile, { profile = it }, Modifier.fillMaxWidth(), label = { Text("Profile slot") },
             supportingText = { Text("-1 = accept any user on the scale") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
         Button(
             onClick = {
-                cfg.keyHex = key; cfg.macText = mac.uppercase(); cfg.profileSlot = profile.toIntOrNull() ?: -1; onSaved()
+                cfg.keyHex = key; cfg.macText = mac.uppercase(); cfg.tokenHex = token.lowercase(); cfg.profileSlot = profile.toIntOrNull() ?: -1; onSaved()
             },
-            enabled = keyOk && macOk, modifier = Modifier.align(Alignment.End),
+            enabled = keyOk && macOk && tokenOk, modifier = Modifier.align(Alignment.End),
         ) { Text("Save & arm") }
     }
 }

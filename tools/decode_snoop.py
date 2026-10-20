@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import struct
 import sys
 from dataclasses import dataclass, field
@@ -395,6 +396,31 @@ def decode_spec(pt: bytes, names: dict = MS113) -> str:
         return f"{head} undecoded={pt[5:].hex()}"
 
 
+OFFLINE_FIELDS = ("idx", "miid", "duid", "weight", "status", "time")
+
+
+def offline_records(s: str) -> list[dict]:
+    out = []
+    for rec in s.split("_"):
+        f = rec.split(",")
+        if len(f) < 6 or not all(x.strip().lstrip("-").isdigit() for x in f[:6]):
+            continue
+        r = dict(zip(OFFLINE_FIELDS, (int(x) for x in f[:6])))
+        r["weight"] = r["weight"] / 100
+        out.append(r)
+    return out
+
+
+def describe_offline(pt: bytes) -> str | None:
+    if len(pt) < 9 or pt[4] != 0x07 or pt[5] != 6 or struct.unpack_from("<H", pt, 6)[0] != 1:
+        return None
+    m = re.search(rb'[0-9,_]{11,}', pt[9:])
+    if not m:
+        return None
+    recs = offline_records(m.group().decode())
+    return "; ".join(f"idx={r['idx']} duid={r['duid']} {r['weight']:.2f} kg status={r['status']} t={r['time']}" for r in recs) or None
+
+
 # ---------------------------------------------------------------- session tracking
 
 @dataclass
@@ -499,6 +525,8 @@ def run(cap: Capture, token: bytes | None, mac: str | None, show_keys: bool, out
                 stats["decrypted"] += 1
                 stats["spec"].append((msg.sent, pt))
                 print(f"{'':>34}ENC ctr={ctr} {decode_spec(pt)}", file=out)
+                if (recs := describe_offline(pt)):
+                    print(f"{'':>34}    offline: {recs}", file=out)
                 print(f"{'':>34}    pt={pt.hex()}", file=out)
 
         if token and login.app_rand and login.dev_rand and login.dev_confirm and login.keys is None:
