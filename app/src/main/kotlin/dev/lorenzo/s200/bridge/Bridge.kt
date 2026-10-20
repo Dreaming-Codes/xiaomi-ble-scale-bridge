@@ -17,7 +17,6 @@ import kotlin.math.abs
 
 object Bridge {
     private const val TAG = "S200Bridge"
-    private const val SAME_READING_SEC = 5
     private val lock = Mutex()
 
     suspend fun handle(ctx: Context, address: String, data: ByteArray) = lock.withLock {
@@ -28,9 +27,8 @@ object Bridge {
             is S200Parser.Result.Ignored -> Log.d(TAG, "ignored: ${r.reason}")
             is S200Parser.Result.Ok -> {
                 val m = r.m
-                if (cfg.profile.let { it != null && it != m.profileId }) return@withLock
-                if (m.timestampEpochSec <= cfg.lastTs) return@withLock
                 val reading = Reading(m.timestampEpochSec, m.weightKg, m.profileId)
+                if (!acceptsBroadcast(reading, cfg.profile, cfg.lastTs)) return@withLock
                 write(ctx, cfg, listOf(reading))
                 ScaleAck.enqueue(ctx)
             }
@@ -39,14 +37,9 @@ object Bridge {
 
     suspend fun storeOfflineReturningConfirmable(ctx: Context, records: List<OfflineRecord>): List<Int> = lock.withLock {
         val cfg = Config(ctx)
-        val mine = records.filter { cfg.profile == null || it.duid == cfg.profile }
-        val known = cfg.history.map { it.epochSec }
-        val fresh = mine
-            .filter { it.weightKg > 0 && known.none { k -> abs(k - it.epochSec) <= SAME_READING_SEC } }
-            .distinctBy { it.epochSec }
-            .map { Reading(it.epochSec, it.weightKg, it.duid) }
-        if (fresh.isNotEmpty()) write(ctx, cfg, fresh)
-        mine.map { it.idx }
+        val sel = selectOffline(records, cfg.profile, cfg.history)
+        if (sel.fresh.isNotEmpty()) write(ctx, cfg, sel.fresh)
+        sel.confirm
     }
 
     private suspend fun write(ctx: Context, cfg: Config, readings: List<Reading>) {
@@ -61,11 +54,27 @@ object Bridge {
         runCatching { WeighInNotifier.post(ctx, latest, prev) }.onFailure { Log.w(TAG, "notify failed", it) }
     }
 
-    private fun weightRecord(r: Reading) = WeightRecord(
+    internal fun weightRecord(r: Reading) = WeightRecord(
         time = Instant.ofEpochSecond(r.epochSec), zoneOffset = null, weight = Mass.kilograms(r.kg),
         metadata = Metadata.autoRecorded(
             device = Device(type = Device.TYPE_SCALE, manufacturer = "Xiaomi", model = "MJTZC02YM"),
             clientRecordId = "s200-${r.epochSec}-${r.profile}", clientRecordVersion = 1,
         ),
     )
+}
+
+internal fun acceptsBroadcast(r: Reading, profile: Int?, lastTs: Long) = (profile == null || r.profile == profile) && r.epochSec > lastTs
+
+internal data class OfflineSelection(val fresh: List<Reading>, val confirm: List<Int>)
+
+private const val SAME_READING_SEC = 5
+
+internal fun selectOffline(records: List<OfflineRecord>, profile: Int?, history: List<Reading>): OfflineSelection {
+    val mine = records.filter { profile == null || it.duid == profile }
+    val known = history.map { it.epochSec }
+    val fresh = mine
+        .filter { it.weightKg > 0 && known.none { k -> abs(k - it.epochSec) <= SAME_READING_SEC } }
+        .distinctBy { it.epochSec }
+        .map { Reading(it.epochSec, it.weightKg, it.duid) }
+    return OfflineSelection(fresh, mine.map { it.idx })
 }
