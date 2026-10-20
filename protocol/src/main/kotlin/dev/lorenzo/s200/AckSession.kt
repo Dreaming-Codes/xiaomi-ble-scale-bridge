@@ -18,6 +18,7 @@ class AckSession(
     private val random: (Int) -> ByteArray,
     private val stepTimeoutMs: Long = 5_000,
     private val eventTimeoutMs: Long = 8_000,
+    private val offlineTimeoutMs: Long = 3_000,
 ) {
     private val avdtp = Endpoint(link, Gatt.AVDTP, stepTimeoutMs)
     private val tx = Endpoint(link, Gatt.TX, stepTimeoutMs)
@@ -54,8 +55,8 @@ class AckSession(
     }
 
     fun requestOffline(): Pair<Int, List<OfflineRecord>> {
-        val rsp = call(Ms113.SIID_OFFLINE, Ms113.AIID_REQUEST_OFFLINE)
-        if (rsp.code != null && rsp.code != 0) throw IllegalStateException("request-offline-data code ${rsp.code}")
+        val rsp = try { call(Ms113.SIID_OFFLINE, Ms113.AIID_REQUEST_OFFLINE, timeoutMs = offlineTimeoutMs) } catch (e: RxferException) { return NOTHING_STORED }
+        if (rsp.code != null && rsp.code != 0) return NOTHING_STORED
         val n = (rsp.args[Ms113.PIID_DATA_NUM] as? SpecValue.Num)?.value?.toInt() ?: 0
         val recs = mutableListOf<OfflineRecord>()
         val deadline = System.currentTimeMillis() + eventTimeoutMs
@@ -74,11 +75,11 @@ class AckSession(
         return rsp.code
     }
 
-    fun call(siid: Int, aiid: Int, args: List<Pair<Int, SpecValue>> = emptyList()): SpecMsg {
+    fun call(siid: Int, aiid: Int, args: List<Pair<Int, SpecValue>> = emptyList(), timeoutMs: Long = stepTimeoutMs): SpecMsg {
         val ch = channel ?: throw IllegalStateException("not logged in")
         val id = ++tid
         tx.send(Rxfer.PASS_THROUGH, ch.seal(MiotSpec.action(id, siid, aiid, args)))
-        val deadline = System.currentTimeMillis() + stepTimeoutMs
+        val deadline = System.currentTimeMillis() + timeoutMs
         while (true) {
             val m = nextSpec(deadline) ?: throw RxferException("no response to action $siid.$aiid")
             if (m.op == MiotSpec.ACTION_RSP && m.tid == id) return m
@@ -109,5 +110,6 @@ class AckSession(
         val LOGIN = byteArrayOf(0x24, 0, 0, 0)
         val LOGIN_OK = byteArrayOf(0x21, 0, 0, 0)
         val LOGIN_ERR = byteArrayOf(0x23, 0, 0, 0)
+        val NOTHING_STORED = 0 to emptyList<OfflineRecord>()
     }
 }

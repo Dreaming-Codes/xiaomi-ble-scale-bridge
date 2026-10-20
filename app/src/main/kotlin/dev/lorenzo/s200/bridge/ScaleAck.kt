@@ -66,13 +66,13 @@ class AckWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
                     s.login()
                     s to s.requestOffline()
                 }
-                val (pending, records) = offline
+                val records = offline.second
                 val confirmable = Bridge.storeOfflineReturningConfirmable(ctx, records)
                 val code = runInterruptible(Dispatchers.IO) { session.confirmOffline(confirmable) }
-                "acked: $pending pending, ${records.size} received, ${confirmable.size} confirmed" + if (code != null && code != 0) " (code $code)" else ""
+                if (code != null && code != 0) throw IllegalStateException("confirm code $code")
+                "$SYNCED ${stamp()}" + if (records.isNotEmpty()) " · ${records.size} stored readings imported" else ""
             }
-        }.getOrElse { "failed: ${it.javaClass.simpleName} ${it.message ?: ""}".trim() }
-            .let { "${stamp()} $it" }
+        }.getOrElse { "Scale sync failed ${stamp()}: ${it.javaClass.simpleName} ${it.message ?: ""}".trim() }
         runCatching { link?.close() }
         Log.i(TAG, cfg.ackStatus)
         return Result.success()
@@ -80,10 +80,11 @@ class AckWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
 
     private fun stamp() = DateTimeFormatter.ofPattern("HH:mm").format(Instant.now().atZone(ZoneId.systemDefault()))
 
-    private companion object {
-        const val TAG = "S200Ack"
-        const val SESSION_MS = 45_000L
-        const val STEP_MS = 5_000L
+    companion object {
+        const val SYNCED = "Scale synced"
+        private const val TAG = "S200Ack"
+        private const val SESSION_MS = 45_000L
+        private const val STEP_MS = 5_000L
     }
 }
 

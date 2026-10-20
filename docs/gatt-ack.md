@@ -14,6 +14,17 @@ Labels used throughout:
 - **Inferred**: the same shape as a confirmed sibling, but never seen on the wire for this op or device.
 - **Unknown**: needs the capture or the Xiaomi Home plugin.
 
+## Field result (v0.4, 2026-10-20, Lorenzo's S200)
+
+- After a weigh-in the app's GATT session connected and **logged in with the token, and the
+  Bluetooth LED stopped blinking**. So the token login (section 3) works on the S200 as documented,
+  and the login alone clears the icon: no sync (7.1) or offline ack (6.2) was needed.
+- The scale **did not answer action 6.1** request-offline-data (no ACTION_RSP within 5 s). Most likely
+  it had nothing stored: Xiaomi Home only sends 6.1 after sync reports offline-msg-cnt > 0.
+- Since v0.5 a successful login is the success condition. 6.1 is still tried with a 3 s timeout; no
+  answer, an error code or data-num 0 all mean "nothing stored". Only a connect/login failure or a
+  failing 6.2 confirm is reported as an error.
+
 ## 0. What Xiaomi Home does (ms113 plugin v11, confirmed)
 
 Source: plugin `xiaomi.scales.ms113` v11 (plugin_id 1021775, package 1817412, sdk 10082, built
@@ -59,8 +70,8 @@ login (`connect(4, …)`), rxfer framing, encryption, the spec TLV encoding of `
    (all `p1 miid Int64, p2 duid Uint8, …`), 5.1 wakeup, 8.1 del-share-users `[p1 JSON array]`,
    properties 1.4/1.5 (firmware), 2.1 unit, 5.1 work-mode.
 
-Nothing in the plugin mentions the Bluetooth icon/LED. Whatever clears it is firmware behaviour
-triggered by one of: a successful login, sync (7.1), or emptying the offline store (6.2).
+Nothing in the plugin mentions the Bluetooth icon/LED. In the field the login alone cleared it
+(see "Field result" above).
 
 ## 1. GATT layout
 
@@ -115,11 +126,11 @@ The receiver of a segmented transfer sends READY and SUCCESS on the **same chara
 Whether a device uses SEG or SGL for a short message varies (the S400 uses SEG, HOTO and Cuktech use SGL),
 so an implementation must accept both.
 
-## 3. Login (Mi BLE "v2" token login; confirmed on S400/HOTO, consistent with the plugin)
+## 3. Login (Mi BLE "v2" token login; confirmed on the S200 in the field, and on S400/HOTO)
 
 The plugin connects with `authType 4` (Standard Auth). For an already-bound Standard Auth device the
 native layer logs in with the cloud token using exactly this flow; the S400 (same yunmai family) is
-driven this way by `xiaomi-s400-live`. Not yet seen on the wire for the S200 itself.
+driven this way by `xiaomi-s400-live`. The app's v0.4 session logged in to Lorenzo's S200 with it.
 
 Inputs: the 12-byte cloud `token` from the device list (`out.json`), never the 16-byte beaconkey.
 
@@ -206,13 +217,14 @@ response, so ms113 returns them too (confirmed by the plugin's parser, section 0
 Value types the plugin uses: 6.p2 idx-string String, 6.p3 data-num read as a number, 7.p1 String,
 4.p1 miid Int64, 4.p2 duid Uint8, 4.p8 weight Uint16 (kg×100).
 
-## 7. Sequence implemented in the app (v0.4)
+## 7. Sequence implemented in the app (v0.5)
 
 ```
 connect (TRANSPORT_LE, no bonding), MTU 247, notify on 0x10/0x19/0x1a/0x1b
 echo any MNG_CMD on a channel back as MNG_ACK
 login (section 3)                                   -> UPNP 21 00 00 00
-ACTION 6.1 request-offline-data []                  -> ACTION_RSP [6.p3 data-num = N]
+ACTION 6.1 request-offline-data []                  -> ACTION_RSP [6.p3 data-num = N] within 3 s;
+                                                       no answer / error / N = 0 = nothing stored
   collect EVENT 6.e1 [6.p1 string] until N records  (8 s cap)
 write the records to Health Connect (dedup against readings already written from MiBeacon)
 ACTION 6.2 comfirm-offline-data [6.p2 = "idx,idx"]  -> ACTION_RSP, only for records that are now
@@ -231,17 +243,19 @@ Deliberately **not** sent:
   sync reports pending records; whether the scale accepts 6.1 without a prior sync is unconfirmed.
 - 4.x user management, 5.1 wakeup, 8.1 share cleanup: unrelated to the ack.
 
-If 6.1 alone does not stop the blinking, the next step is a sync with the real user table
-or a capture showing which call clears it. The user table comes from Xiaomi's cloud and is not fetched yet.
+The status chip reads `Scale synced HH:mm`, plus `· N stored readings imported` when 6.1 returned
+records. 6.1 → 6.e1 → 6.2 is still unobserved on the S200: it only applies when the scale holds
+readings, which the passive path normally makes rare.
 
 ## 8. Open unknowns
 
 1. **Which channel**: 0x1a/0x1b with rxfer (what the plugin waits for, so very likely) or `mi.miot.ble`.
 2. **Wire layout of ACTION / ACTION_RSP** (`code` field, `nargs` width). The app accepts both variants.
 3. **SEG vs SGL**: the app sends everything segmented (like the S400 client) and accepts both from the scale.
-4. **Whether 6.1 works without 7.1 first** (section 7).
-5. **What clears the icon**: login alone, sync, or confirming offline data. It may also start
-   blinking again after disconnect until the next connection.
+4. **Whether 6.1 works without 7.1 first.** In the field 6.1 got no answer; most likely nothing was
+   stored, but it may also need a prior sync.
+5. ~~What clears the icon~~: the login alone (field result). Whether it starts blinking again later
+   without a connection is unobserved.
 6. **Side effects**: confirming removes the records from the scale, so Xiaomi Home will not see them
    later (they are in Health Connect instead).
 

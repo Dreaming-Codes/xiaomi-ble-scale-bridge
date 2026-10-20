@@ -6,6 +6,8 @@ class FakeScale(
     private val records: List<String>,
     private val withCode: Boolean = true,
     private val sglRandom: Boolean = true,
+    private val answersOffline: Boolean = true,
+    private val offlineCode: Int = 0,
 ) : Link {
     private val notifications = mutableMapOf<Int, ArrayDeque<ByteArray>>()
     private val rxSeg = mutableMapOf<Int, Triple<Int, Int, MutableList<ByteArray>>>()
@@ -79,7 +81,7 @@ class FakeScale(
                 val m = MiotSpec.decode(ch2.open(data)!!)!!
                 actions += m
                 when (m.siid to m.iid) {
-                    6 to 1 -> {
+                    6 to 1 -> if (!answersOffline) Unit else if (offlineCode != 0) reply(m, emptyList(), offlineCode) else {
                         reply(m, listOf(3 to SpecValue.Num(SpecValue.U8, records.sumOf { it.split('_').size }.toLong())))
                         records.forEach { r -> event(6, 1, listOf(1 to SpecValue.Str(r))) }
                     }
@@ -89,8 +91,8 @@ class FakeScale(
         }
     }
 
-    private fun reply(m: SpecMsg, out: List<Pair<Int, SpecValue>>) {
-        val body = byteArrayOf(m.siid.toByte()) + le16(m.iid) + (if (withCode) le16(0) else byteArrayOf()) +
+    private fun reply(m: SpecMsg, out: List<Pair<Int, SpecValue>>, code: Int = 0) {
+        val body = byteArrayOf(m.siid.toByte()) + le16(m.iid) + (if (withCode) le16(code) else byteArrayOf()) +
             byteArrayOf(out.size.toByte()) + out.fold(byteArrayOf()) { a, (p, v) -> a + le16(p) + MiotSpec.encodeValue(v) }
         val blob = channel!!.seal(MiotSpec.frame(m.tid, MiotSpec.ACTION_RSP, body))
         send(Gatt.RX, Rxfer.PASS_THROUGH, blob, blob.size <= 16)

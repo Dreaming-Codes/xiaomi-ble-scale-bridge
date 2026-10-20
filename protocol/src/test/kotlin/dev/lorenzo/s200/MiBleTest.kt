@@ -120,6 +120,23 @@ class AckSessionTest {
         assertEquals(0, s.confirmOffline(emptyList()))
     }
 
+    @Test fun unansweredRequestMeansNothingStored() {
+        val scale = FakeScale(token, dev, emptyList(), answersOffline = false)
+        val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, offlineTimeoutMs = 20)
+        s.login()
+        assertTrue(scale.loggedIn)
+        assertEquals(AckSession.NOTHING_STORED, s.requestOffline())
+        assertEquals(0, s.confirmOffline(emptyList()))
+        assertEquals(listOf(6 to 1), scale.actions.map { it.siid to it.iid })
+    }
+
+    @Test fun errorCodeOnRequestMeansNothingStored() {
+        val scale = FakeScale(token, dev, emptyList(), offlineCode = -4004)
+        val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, offlineTimeoutMs = 20)
+        s.login()
+        assertEquals(AckSession.NOTHING_STORED, s.requestOffline())
+    }
+
     @Test fun wrongTokenFailsBeforeConfirming() {
         val scale = FakeScale(MiToken.parse("ffffffffffffffffffffffff")!!, dev, emptyList())
         val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50)

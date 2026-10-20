@@ -185,18 +185,18 @@ private fun StatusCard(s: UiState) {
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             Spacer(Modifier.height(4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusChip("Scan", s.scan.startsWith("armed"), s.scan)
-                StatusChip("Presence", s.presence == "observing presence", s.presence)
-                if (s.tokenSet) StatusChip("Scale ack", s.ack.contains("acked"), s.ack)
+                StatusChip("Scan: ${s.scan}", s.scan.startsWith("armed"))
+                StatusChip("Presence: ${s.presence}", s.presence == "observing presence")
+                if (s.tokenSet) StatusChip(if (s.ack == "-") "Scale: not synced yet" else s.ack, s.ack.startsWith(AckWorker.SYNCED))
             }
         }
     }
 }
 
 @Composable
-private fun StatusChip(label: String, ok: Boolean, detail: String) {
+private fun StatusChip(text: String, ok: Boolean) {
     AssistChip(
-        onClick = {}, label = { Text("$label: $detail") },
+        onClick = {}, label = { Text(text) },
         leadingIcon = { Icon(if (ok) Icons.Outlined.CheckCircle else Icons.Outlined.Warning, null, Modifier.size(18.dp)) },
     )
 }
