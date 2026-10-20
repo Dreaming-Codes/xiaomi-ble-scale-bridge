@@ -130,7 +130,7 @@ private fun BridgeScreen(act: ComponentActivity) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = { LargeTopAppBar(title = { Text("S200 Bridge") }, scrollBehavior = scroll) },
+        topBar = { LargeTopAppBar(title = { Text("Xiaomi BLE Scale Bridge") }, scrollBehavior = scroll) },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { pad ->
         LazyColumn(

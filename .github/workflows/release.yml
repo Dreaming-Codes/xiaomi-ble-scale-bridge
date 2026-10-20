@@ -65,7 +65,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          apk="s200-bridge-$VERSION.apk"
+          apk="xiaomi-ble-scale-bridge-$VERSION.apk"
           mv app/build/outputs/apk/release/app-release.apk "$apk"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee apksigner.txt
           cert=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' apksigner.txt)

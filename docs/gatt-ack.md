@@ -305,7 +305,7 @@ transfers, wrong-token detection, MAC filtering and token loading from the extra
 4. The clock times when the icon changed, matched to capture timestamps, which settles unknown 5.
 
 The app's own session can be captured the same way (snoop log on, weigh in with Xiaomi Home closed)
-and decoded with the same command; `S200 Bridge → Scale ack` shows its result on the status card.
+and decoded with the same command; `Xiaomi BLE Scale Bridge → Scale ack` shows its result on the status card.
 
 ## Sources
 - Xiaomi mijia BLE SDK: `mible_rxfer.c`, `gatt_spec.h`, `mi_spec_type.h` (in Telink/JieLi SDK trees on GitHub).

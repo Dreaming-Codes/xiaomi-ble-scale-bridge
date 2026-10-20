@@ -1,6 +1,6 @@
 # Scale setup fields
 
-The **Scale setup** card in S200 Bridge has four fields. **Sign in with Xiaomi** fills the bind key, the scale MAC, and the BLE token, and leaves the profile slot as it is. The extractor column names the line in the [Xiaomi-cloud-tokens-extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor) output, and the JSON column names the key in its `-o` output file.
+The **Scale setup** card in Xiaomi BLE Scale Bridge has four fields. **Sign in with Xiaomi** fills the bind key, the scale MAC, and the BLE token, and leaves the profile slot as it is. The extractor column names the line in the [Xiaomi-cloud-tokens-extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor) output, and the JSON column names the key in its `-o` output file.
 
 | Field | Format | Extractor line | JSON key | Required | Used for |
 | --- | --- | --- | --- | --- | --- |
