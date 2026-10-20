@@ -17,7 +17,7 @@ android {
     namespace = "dev.lorenzo.s200.bridge"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
-    defaultConfig { applicationId = "dev.lorenzo.s200.bridge"; minSdk = 34; targetSdk = 36; versionCode = 10; versionName = "0.10" }
+    defaultConfig { applicationId = "dev.lorenzo.s200.bridge"; minSdk = 34; targetSdk = 36; versionCode = 11; versionName = "0.11" }
     signingConfigs {
         if (releaseSigning != null) create("release") {
             storeFile = file(releaseSigning.getValue("storeFile"))
