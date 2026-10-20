@@ -13,6 +13,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,6 +44,9 @@ import dev.lorenzo.s200.BindKey
 import dev.lorenzo.s200.MiToken
 import dev.lorenzo.s200.Reading
 import dev.lorenzo.s200.ScaleMac
+import dev.lorenzo.s200.cloud.CloudScale
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -215,7 +220,14 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
     val keyOk = BindKey.parse(key) != null
     val tokenOk = token.isEmpty() || MiToken.parse(token) != null
     val macOk = ScaleMac.parse(mac) != null
+    val apply = { c: CloudScale ->
+        key = c.bindKey.hex; mac = c.mac.address; token = c.token?.hex.orEmpty()
+        cfg.keyHex = key; cfg.macText = mac; cfg.tokenHex = token; onSaved()
+    }
     SectionCard("Scale setup", Icons.Outlined.Edit) {
+        XiaomiSignInSection(apply)
+        HorizontalDivider()
+        Text("Or enter the values by hand", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         SecretField(key, { key = it }, "Bind key", "32 hex chars from Xiaomi cloud", isError = key.isNotEmpty() && !keyOk)
         OutlinedTextField(
             mac, { mac = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Scale MAC") },
@@ -235,6 +247,61 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
             },
             enabled = keyOk && macOk && tokenOk, modifier = Modifier.align(Alignment.End),
         ) { Text("Save & arm") }
+    }
+}
+
+@Composable
+private fun ColumnScope.XiaomiSignInSection(onPicked: (CloudScale) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var login by remember { mutableStateOf<XiaomiLogin>(XiaomiLogin.Idle) }
+    var job by remember { mutableStateOf<Job?>(null) }
+    val openBrowser = { url: String -> CustomTabsIntent.Builder().build().launchUrl(ctx, Uri.parse(url)) }
+    fun pick(c: CloudScale) { login = XiaomiLogin.Idle; onPicked(c) }
+    fun start() {
+        job?.cancel()
+        job = scope.launch {
+            val result = xiaomiSignIn { login = it; if (it is XiaomiLogin.AwaitingBrowser) openBrowser(it.loginUrl) }
+            runCatching { ctx.startActivity(Intent(ctx, SetupActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
+            val only = (result as? XiaomiLogin.Choose)?.scales?.singleOrNull()
+            if (only != null) pick(only) else login = result
+        }
+    }
+    when (val l = login) {
+        XiaomiLogin.Idle, is XiaomiLogin.Failed -> {
+            Text("Sign in with the Xiaomi account that has the scale in Xiaomi Home. The app reads the bind key, BLE token, and MAC from every Xiaomi region, then forgets the sign-in.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (l is XiaomiLogin.Failed) Text(l.reason, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            Button(::start, Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.AccountCircle, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                Text(if (l is XiaomiLogin.Failed) "Try again" else "Sign in with Xiaomi")
+            }
+        }
+        is XiaomiLogin.AwaitingBrowser -> {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Text("Finish signing in on the Xiaomi page. Come back here when it's done.", style = MaterialTheme.typography.bodyMedium)
+            Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton({ job?.cancel(); login = XiaomiLogin.Idle }) { Text("Cancel") }
+                FilledTonalButton({ openBrowser(l.loginUrl) }) { Text("Reopen page") }
+            }
+        }
+        XiaomiLogin.Fetching -> {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Text("Signed in. Looking for your scale in every Xiaomi region.", style = MaterialTheme.typography.bodyMedium)
+        }
+        is XiaomiLogin.Choose -> {
+            Text("Pick your scale", style = MaterialTheme.typography.titleSmall)
+            l.scales.forEach { c ->
+                ListItem(
+                    headlineContent = { Text(c.name) },
+                    supportingContent = { Text("${c.mac.address} · region ${c.region.code}", fontFamily = FontFamily.Monospace) },
+                    leadingContent = { Icon(Icons.Outlined.Star, null) },
+                    modifier = Modifier.clickable { pick(c) },
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                )
+            }
+            TextButton({ login = XiaomiLogin.Idle }, Modifier.align(Alignment.End)) { Text("Cancel") }
+        }
     }
 }
 
