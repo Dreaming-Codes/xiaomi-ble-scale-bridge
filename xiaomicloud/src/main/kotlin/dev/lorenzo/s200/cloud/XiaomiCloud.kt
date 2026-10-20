@@ -97,7 +97,7 @@ object XiaomiCloud {
         }.distinctBy { it.did }
         return devices.mapNotNull { d ->
             val key = CloudJson.beaconKey(call(session, region, "/v2/device/blt_get_beaconkey", """{"did":"${d.did}","pdid":1}""")) ?: return@mapNotNull null
-            CloudScale(region, d.name, d.mac, key, d.token)
+            CloudScale(region, d.model, d.name, d.mac, key, d.token)
         }
     }
 }

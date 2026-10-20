@@ -2,12 +2,13 @@ package dev.lorenzo.s200.cloud
 
 import dev.lorenzo.s200.BindKey
 import dev.lorenzo.s200.ScaleMac
+import dev.lorenzo.s200.ScaleModel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ScaleSearchTest {
     private val key = BindKey.parse("00112233445566778899aabbccddeeff")!!
-    private fun scale(region: Region, mac: String) = CloudScale(region, "S200", ScaleMac.parse(mac)!!, key, null)
+    private fun scale(region: Region, mac: String) = CloudScale(region, ScaleModel.MS113, "S200", ScaleMac.parse(mac)!!, key, null)
 
     @Test fun scalesFromEveryRegionAreMergedWithTheirRegion() {
         val de = scale(Region.DE, "AA:BB:CC:DD:EE:01")

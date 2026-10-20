@@ -21,7 +21,6 @@ value class ScaleMac private constructor(val address: String) {
 data class Reading(val epochSec: Long, val kg: Double, val profile: Int)
 
 object S200Parser {
-    val PRODUCT_IDS = setOf(0x45C9, 0x4C04, 0x4DCB)
     const val FRAME_CTRL = 0x5948
     const val OBJ_WEIGHT = 0x4E16
 
@@ -35,7 +34,7 @@ object S200Parser {
         val fc = u16(d, 0)
         if (fc != FRAME_CTRL) return Result.Ignored("frame ctrl %04x".format(fc))
         val pid = u16(d, 2)
-        if (pid !in PRODUCT_IDS) return Result.Ignored("product %04x".format(pid))
+        if (ScaleModel.ofProductId(pid) == null) return Result.Ignored("product %04x".format(pid))
         val nonce = mac.nonceBytes + d.copyOfRange(2, 5) + d.copyOfRange(d.size - 7, d.size - 4)
         val ct = d.copyOfRange(5, d.size - 7)
         val mic = d.copyOfRange(d.size - 4, d.size)

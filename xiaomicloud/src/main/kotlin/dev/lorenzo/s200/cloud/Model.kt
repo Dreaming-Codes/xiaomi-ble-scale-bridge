@@ -3,6 +3,7 @@ package dev.lorenzo.s200.cloud
 import dev.lorenzo.s200.BindKey
 import dev.lorenzo.s200.MiToken
 import dev.lorenzo.s200.ScaleMac
+import dev.lorenzo.s200.ScaleModel
 import org.json.JSONObject
 
 enum class Region(val code: String) {
@@ -15,7 +16,7 @@ data class QrLogin(val loginUrl: String, val pollUrl: String, val timeoutSec: In
 
 class CloudSession internal constructor(internal val userId: String, internal val ssecurity: String, internal val serviceToken: String)
 
-data class CloudScale(val region: Region, val name: String, val mac: ScaleMac, val bindKey: BindKey, val token: MiToken?)
+data class CloudScale(val region: Region, val model: ScaleModel, val name: String, val mac: ScaleMac, val bindKey: BindKey, val token: MiToken?)
 
 sealed interface ScaleSearch {
     data class Found(val scales: List<CloudScale>) : ScaleSearch
@@ -39,11 +40,9 @@ class XiaomiCloudException(message: String) : Exception(message)
 
 internal data class LoginTicket(val userId: String, val ssecurity: String, val location: String)
 internal data class Home(val id: String, val owner: String)
-internal data class CloudDevice(val did: String, val name: String, val mac: ScaleMac, val token: MiToken?)
+internal data class CloudDevice(val did: String, val model: ScaleModel, val name: String, val mac: ScaleMac, val token: MiToken?)
 
 internal object CloudJson {
-    const val SCALE_MODEL = "xiaomi.scales.ms113"
-
     private fun obj(text: String) = runCatching { JSONObject(text.removePrefix("&&&START&&&")) }
         .getOrElse { throw XiaomiCloudException("Xiaomi sent an unreadable reply") }
 
@@ -71,9 +70,10 @@ internal object CloudJson {
 
     fun scaleDevices(text: String): List<CloudDevice> {
         val list = obj(text).optJSONObject("result")?.optJSONArray("device_info") ?: return emptyList()
-        return (0 until list.length()).map(list::getJSONObject).filter { it.optString("model") == SCALE_MODEL }.mapNotNull { d ->
+        return (0 until list.length()).map(list::getJSONObject).mapNotNull { d ->
+            val model = ScaleModel.ofModel(d.optString("model")) ?: return@mapNotNull null
             val mac = ScaleMac.parse(d.optString("mac")) ?: return@mapNotNull null
-            CloudDevice(d.optString("did"), d.optString("name", "Xiaomi scale"), mac, MiToken.parse(d.optString("token")))
+            CloudDevice(d.optString("did"), model, d.optString("name", model.displayName), mac, MiToken.parse(d.optString("token")))
         }
     }
 
