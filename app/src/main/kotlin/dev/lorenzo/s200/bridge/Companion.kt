@@ -61,15 +61,20 @@ class ScaleCompanionService : CompanionDeviceService() {
 
     @RequiresApi(36)
     override fun onDevicePresenceEvent(event: DevicePresenceEvent) {
-        when (event.event) {
-            DevicePresenceEvent.EVENT_BLE_APPEARED -> burstScan()
-            DevicePresenceEvent.EVENT_BLE_DISAPPEARED -> stopScan()
-        }
+        react(presenceReaction(event.event))
     }
     @Deprecated("API < 36 path")
-    override fun onDeviceAppeared(info: AssociationInfo) { if (Build.VERSION.SDK_INT < 36) burstScan() }
+    override fun onDeviceAppeared(info: AssociationInfo) { if (Build.VERSION.SDK_INT < 36) react(PresenceReaction.REARM_AND_BURST) }
     @Deprecated("API < 36 path")
-    override fun onDeviceDisappeared(info: AssociationInfo) { if (Build.VERSION.SDK_INT < 36) stopScan() }
+    override fun onDeviceDisappeared(info: AssociationInfo) { if (Build.VERSION.SDK_INT < 36) react(PresenceReaction.STOP) }
+
+    private fun react(r: PresenceReaction) {
+        when (r) {
+            PresenceReaction.REARM_AND_BURST -> { Log.i("S200Companion", "appeared: " + Scanner.arm(this)); burstScan() }
+            PresenceReaction.STOP -> stopScan()
+            PresenceReaction.IGNORE -> Unit
+        }
+    }
 
     @SuppressLint("MissingPermission")
     private fun burstScan() {
