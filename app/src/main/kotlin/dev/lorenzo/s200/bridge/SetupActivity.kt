@@ -73,7 +73,7 @@ fun BridgeTheme(content: @Composable () -> Unit) {
 
 private data class UiState(
     val configured: Boolean = false, val scan: String = "-",
-    val bt: Boolean = false, val connect: Boolean = false, val tokenSet: Boolean = false, val ack: String = "-", val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false,
+    val bt: Boolean = false, val connect: Boolean = false, val tokenSet: Boolean = false, val ack: String = "-", val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val unused: Int = -1,
     val history: List<Reading> = emptyList(),
 )
 
@@ -97,13 +97,14 @@ private fun BridgeScreen(act: SetupActivity) {
             connect = act.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED,
             tokenSet = cfg.token != null, ack = cfg.ackStatus,
             notify = act.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-            hc = hc, battery = act.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(act.packageName),
+            hc = hc, battery = act.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(act.packageName), unused = UnusedApp.status(act),
             history = cfg.history,
         )
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refresh() }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh() }
+    val unusedLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { refresh() }
     val hcLauncher = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { refresh() }
     val snackbar = remember { SnackbarHostState() }
     var msg by remember { mutableStateOf<String?>(null) }
@@ -141,6 +142,11 @@ private fun BridgeScreen(act: SetupActivity) {
                     }
                     PermRow(Icons.Outlined.Settings, "Battery unrestricted", "Reliable background delivery", state.battery, "Open") {
                         act.askUnrestricted()
+                    }
+                    PermRow(Icons.Outlined.Lock, "Unused-app exemption",
+                        "Recommended · hibernation force-stops the app and kills the background scan · ${UnusedApp.label(state.unused)}",
+                        UnusedApp.exempt(state.unused), "Open", enabled = UnusedApp.canManage(state.unused)) {
+                        runCatching { unusedLauncher.launch(UnusedApp.manageIntent(act)) }.onFailure { msg = "Can't open the setting: ${it.message}" }
                     }
                 }
             }
