@@ -16,6 +16,47 @@ You need the following:
 - A [supported scale](#supported-scales) that is already added to Xiaomi Home on your Xiaomi account.
 - JDK 17 and the Android SDK 36, to build the APK yourself. The Gradle wrapper downloads Gradle 8.14.3.
 
+## Supported scales
+
+The app works with every model that shares Xiaomi's S200 plugin. These five models broadcast the same encrypted MiBeacon advert, with the weight in object `0x4E16`, and use the same 6.1 and 6.2 acknowledgement. The product ID is the value in bytes 2 and 3 of the advert.
+
+| Model | Product ID | Scale |
+| --- | --- | --- |
+| `yunmai.scales.ms106` | `0x45C9` | Mijia Smart Scale S200, white (China) |
+| `xiaomi.scales.ms111` | `0x4C04` | Xiaomi Smart Scale S200, white |
+| `xiaomi.scales.ms112` | `0x4D36` | Mijia Smart Scale S200, blue (China) |
+| `xiaomi.scales.ms113` | `0x4DCB` | Xiaomi Smart Scale S200, dark gray |
+| `xiaomi.scales.ms114` | `0x4DCC` | Xiaomi Smart Scale S200 (Japan and Korea) |
+
+`ScaleModel` in `protocol/src/main/kotlin/dev/lorenzo/s200/ScaleModel.kt` holds this table. The advert parser and the Xiaomi sign-in both read it.
+
+### Scales that are easy to add
+
+The S400 family sends the same encrypted MiBeacon advert, but it puts the reading in object `0x6E16`. That object packs the weight in 0.1 kg steps with the heart rate and the impedance, and it carries no timestamp. The acknowledgement uses actions 9.1 and 9.2 instead of 6.1 and 6.2. Support needs a second parser branch and a second acknowledgement.
+
+| Model | Product ID | Scale |
+| --- | --- | --- |
+| `yunmai.scales.ms103` | `0x30D9` | Mijia Body Composition Scale S400 (China) |
+| `yunmai.scales.ms104` | `0x3BD5` | Xiaomi Body Composition Scale S400 |
+| `yunmai.scales.ms107` | `0x48CF` | Mijia Body Composition Scale S400, blue (China) |
+| `xiaomi.scales.ms115` | `0x4FC2` | Xiaomi Body Composition Scale S400 (Japan and Korea) |
+
+### Scales that may be easy to add
+
+Nobody has published how these scales encode their adverts. Support needs a Bluetooth capture of a weigh-in first.
+
+| Model | Product ID | Scale |
+| --- | --- | --- |
+| `xiaomi.scales.ms110` | `0x4B05` | Mijia Body Composition Scale S400 Pro |
+| `xiaomi.scales.ms116` | `0x51E2` | Mijia 8-Electrode Body Composition Scale S800 |
+| `xiaomi.scales.ms117` | `0x6CB0` | Mijia 8-Electrode Body Composition Scale S800, green |
+
+The older Mi Body Composition Scale 2 sends its weight in a different, unencrypted advert. This app doesn't support it.
+
+The model strings and product IDs come from the [Xiaomi MIoT spec database](https://home.miot-spec.com/s/xiaomi.scales). The advert formats come from [xiaomi-ble](https://github.com/Bluetooth-Devices/xiaomi-ble).
+
+If you own one of these scales and want it supported, [open an issue](https://github.com/Dreaming-Codes/xiaomi-ble-scale-bridge/issues) and I'll take a look.
+
 ## Install the app
 
 Each [GitHub release](https://github.com/Dreaming-Codes/xiaomi-ble-scale-bridge/releases) has a signed `xiaomi-ble-scale-bridge-<version>.apk` and its SHA-256 checksum. To get updates automatically, tap the **Get it on Obtainium** badge on your phone, or add `https://github.com/Dreaming-Codes/xiaomi-ble-scale-bridge` in Obtainium by hand.
