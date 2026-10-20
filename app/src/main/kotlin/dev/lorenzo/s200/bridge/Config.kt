@@ -1,10 +1,13 @@
 package dev.lorenzo.s200.bridge
 
 import android.content.Context
+import android.content.pm.PackageManager
 import dev.lorenzo.s200.BindKey
 import dev.lorenzo.s200.MiToken
 import dev.lorenzo.s200.Reading
 import dev.lorenzo.s200.ScaleMac
+
+fun Context.granted(permission: String) = checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
 internal object History {
     private const val KEEP = 20
@@ -25,7 +28,7 @@ class Config(ctx: Context) {
     var profileSlot: Int get() = p.getInt("profile", -1); set(v) = p.edit().putInt("profile", v).apply()
     var lastTs: Long get() = p.getLong("lastTs", 0); set(v) = p.edit().putLong("lastTs", v).apply()
     var tokenHex: String get() = p.getString("token", "")!!; set(v) = p.edit().putString("token", v).apply()
-    var ackStatus: String get() = p.getString("ackStatus", "-")!!; set(v) = p.edit().putString("ackStatus", v).apply()
+    var ack: AckStatus? get() = AckStatus.decode(p.getString("ackStatus", "")!!); set(v) = p.edit().putString("ackStatus", v?.encode()).apply()
 
     val key: BindKey? get() = BindKey.parse(keyHex)
     val mac: ScaleMac? get() = ScaleMac.parse(macText)

@@ -12,21 +12,27 @@ import androidx.core.content.UnusedAppRestrictionsConstants.DISABLED
 import androidx.core.content.UnusedAppRestrictionsConstants.ERROR
 import androidx.core.content.UnusedAppRestrictionsConstants.FEATURE_NOT_AVAILABLE
 
-object UnusedApp {
-    suspend fun status(ctx: Context): Int = runCatching { PackageManagerCompat.getUnusedAppRestrictionsStatus(ctx).await() }.getOrDefault(ERROR)
+enum class UnusedApp(val label: String, val exempt: Boolean, val canManage: Boolean) {
+    Off("off", exempt = true, canManage = true),
+    Unavailable("not on this device", exempt = true, canManage = false),
+    RevokesPermissionsBackport("on (permission revocation only)", exempt = false, canManage = true),
+    RevokesPermissions("on (permissions removed if unused)", exempt = false, canManage = true),
+    Hibernates("on (app paused if unused)", exempt = false, canManage = true),
+    Unknown("unknown", exempt = false, canManage = false);
 
-    fun manageIntent(ctx: Context): Intent = IntentCompat.createManageUnusedAppRestrictionsIntent(ctx, ctx.packageName)
+    companion object {
+        fun of(status: Int) = when (status) {
+            DISABLED -> Off
+            FEATURE_NOT_AVAILABLE -> Unavailable
+            API_30_BACKPORT -> RevokesPermissionsBackport
+            API_30 -> RevokesPermissions
+            API_31 -> Hibernates
+            else -> Unknown
+        }
 
-    fun exempt(status: Int) = status == DISABLED || status == FEATURE_NOT_AVAILABLE
+        suspend fun query(ctx: Context): UnusedApp =
+            of(runCatching { PackageManagerCompat.getUnusedAppRestrictionsStatus(ctx).await() }.getOrDefault(ERROR))
 
-    fun canManage(status: Int) = status == API_30_BACKPORT || status == API_30 || status == API_31 || status == DISABLED
-
-    fun label(status: Int) = when (status) {
-        DISABLED -> "off"
-        FEATURE_NOT_AVAILABLE -> "not on this device"
-        API_30_BACKPORT -> "on (permission revocation only)"
-        API_30 -> "on (permissions removed if unused)"
-        API_31 -> "on (app paused if unused)"
-        else -> "unknown"
+        fun manageIntent(ctx: Context): Intent = IntentCompat.createManageUnusedAppRestrictionsIntent(ctx, ctx.packageName)
     }
 }

@@ -1,6 +1,5 @@
 package dev.lorenzo.s200.bridge
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
@@ -11,80 +10,12 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
-import android.content.pm.PackageManager
-import android.util.Log
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import dev.lorenzo.s200.AckSession
 import dev.lorenzo.s200.Gatt
 import dev.lorenzo.s200.Link
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
-import kotlinx.coroutines.withTimeout
-import java.security.SecureRandom
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
-
-object ScaleAck {
-    private const val WORK = "scale-ack"
-
-    fun enqueue(ctx: Context) {
-        if (Config(ctx).token == null) return
-        val req = OneTimeWorkRequestBuilder<AckWorker>()
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .build()
-        WorkManager.getInstance(ctx).enqueueUniqueWork(WORK, ExistingWorkPolicy.KEEP, req)
-    }
-}
-
-class AckWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
-    override suspend fun doWork(): Result {
-        val ctx = applicationContext
-        val cfg = Config(ctx)
-        val token = cfg.token ?: return Result.success()
-        val mac = cfg.mac ?: return Result.success()
-        if (ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            cfg.ackStatus = "needs Bluetooth connect permission"
-            return Result.success()
-        }
-        val rng = SecureRandom()
-        var link: GattLink? = null
-        cfg.ackStatus = runCatching {
-            withTimeout(SESSION_MS) {
-                val (session, offline) = runInterruptible(Dispatchers.IO) {
-                    val l = GattLink.open(ctx, mac.address, STEP_MS).also { link = it }
-                    val s = AckSession.login(l, token, { n -> ByteArray(n).also(rng::nextBytes) }, STEP_MS)
-                    s to s.requestOffline()
-                }
-                val records = offline
-                val confirmable = Bridge.storeOfflineReturningConfirmable(ctx, records)
-                runInterruptible(Dispatchers.IO) { session.confirmOffline(confirmable) }
-                "$SYNCED ${stamp()}" + if (records.isNotEmpty()) " · ${records.size} stored readings imported" else ""
-            }
-        }.getOrElse { "Scale sync failed ${stamp()}: ${it.javaClass.simpleName} ${it.message ?: ""}".trim() }
-        runCatching { link?.close() }
-        Log.i(TAG, cfg.ackStatus)
-        return Result.success()
-    }
-
-    private fun stamp() = DateTimeFormatter.ofPattern("HH:mm").format(Instant.now().atZone(ZoneId.systemDefault()))
-
-    companion object {
-        const val SYNCED = "Scale synced"
-        private const val TAG = "S200Ack"
-        private const val SESSION_MS = 45_000L
-        private const val STEP_MS = 5_000L
-    }
-}
 
 @SuppressLint("MissingPermission")
 class GattLink private constructor(private val timeoutMs: Long) : Link, AutoCloseable {

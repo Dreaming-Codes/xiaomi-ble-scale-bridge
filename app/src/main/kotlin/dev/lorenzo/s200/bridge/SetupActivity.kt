@@ -2,8 +2,8 @@ package dev.lorenzo.s200.bridge
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
@@ -55,50 +55,61 @@ class SetupActivity : ComponentActivity() {
         super.onCreate(s)
         setContent { BridgeTheme { BridgeScreen(this) } }
     }
+}
 
-    @SuppressLint("BatteryLife")
-    fun askUnrestricted() {
-        val pm = getSystemService(PowerManager::class.java)
-        if (pm.isIgnoringBatteryOptimizations(packageName))
-            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-        else startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-    }
+private fun Context.batteryUnrestricted() = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+
+@SuppressLint("BatteryLife")
+private fun Context.openBatterySettings() {
+    val action = if (batteryUnrestricted()) Settings.ACTION_APPLICATION_DETAILS_SETTINGS else Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+    startActivity(Intent(action, Uri.parse("package:$packageName")))
+}
+
+private enum class RuntimePermission(val permission: String, val icon: ImageVector, val title: String, val purpose: String) {
+    Scan(Manifest.permission.BLUETOOTH_SCAN, Icons.Outlined.Search, "Bluetooth scan", "Find the scale's broadcasts"),
+    Connect(Manifest.permission.BLUETOOTH_CONNECT, Icons.Outlined.Refresh, "Bluetooth connect", "Re-arm after Bluetooth restarts; stop the scale blinking"),
+    Notify(Manifest.permission.POST_NOTIFICATIONS, Icons.Outlined.Notifications, "Notifications", "Show each new weigh-in"),
 }
 
 @Composable
-fun BridgeTheme(content: @Composable () -> Unit) {
+private fun BridgeTheme(content: @Composable () -> Unit) {
     val ctx = LocalContext.current
     val scheme = if (isSystemInDarkTheme()) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
     MaterialTheme(colorScheme = scheme, content = content)
 }
 
 private data class UiState(
-    val scan: String = "-",
-    val bt: Boolean = false, val connect: Boolean = false, val tokenSet: Boolean = false, val ack: String = "-", val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val unused: Int = -1,
+    val scan: ArmResult? = null,
+    val granted: Set<RuntimePermission> = emptySet(),
+    val tokenSet: Boolean = false,
+    val ack: AckStatus? = null,
+    val hc: Boolean? = null,
+    val battery: Boolean = false,
+    val unused: UnusedApp = UnusedApp.Unknown,
     val history: List<Reading> = emptyList(),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BridgeScreen(act: SetupActivity) {
+private fun BridgeScreen(act: ComponentActivity) {
     val cfg = remember { Config(act) }
     var state by remember { mutableStateOf(UiState()) }
     var tick by remember { mutableIntStateOf(0) }
     val refresh = { tick++ }
 
     LaunchedEffect(tick) {
-        val scan = Scanner.arm(act)
-        Scanner.scheduleWatchdog(act)
+        val scan = Scanner.rearm(act)
         val hc = if (HealthConnectClient.getSdkStatus(act) == HealthConnectClient.SDK_AVAILABLE)
             runCatching { HealthConnectClient.getOrCreate(act).permissionController.getGrantedPermissions().containsAll(HC_PERMS) }.getOrNull()
         else null
         state = UiState(
             scan = scan,
-            bt = act.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED,
-            connect = act.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED,
-            tokenSet = cfg.token != null, ack = cfg.ackStatus,
-            notify = act.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
-            hc = hc, battery = act.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(act.packageName), unused = UnusedApp.status(act),
+            granted = RuntimePermission.entries.filterTo(mutableSetOf()) { act.granted(it.permission) },
+            tokenSet = cfg.token != null,
+            ack = cfg.ack,
+            hc = hc,
+            battery = act.batteryUnrestricted(),
+            unused = UnusedApp.query(act),
             history = cfg.history,
         )
     }
@@ -127,26 +138,19 @@ private fun BridgeScreen(act: SetupActivity) {
             }
             item {
                 SectionCard("Permissions", Icons.Outlined.Lock) {
-                    PermRow(Icons.Outlined.Search, "Bluetooth scan", "Find the scale's broadcasts", state.bt, "Grant") {
-                        permLauncher.launch(Manifest.permission.BLUETOOTH_SCAN)
-                    }
-                    PermRow(Icons.Outlined.Refresh, "Bluetooth connect", "Re-arm after Bluetooth restarts; stop the scale blinking",
-                        state.connect, "Grant") {
-                        permLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
-                    }
-                    PermRow(Icons.Outlined.Notifications, "Notifications", "Show each new weigh-in", state.notify, "Grant") {
-                        permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    RuntimePermission.entries.forEach { p ->
+                        PermRow(p.icon, p.title, p.purpose, p in state.granted, "Grant") { permLauncher.launch(p.permission) }
                     }
                     PermRow(Icons.Outlined.Favorite, "Health Connect", "Write weight records",
                         state.hc == true, if (state.hc == null) "Unavailable" else "Grant", enabled = state.hc != null) {
                         hcLauncher.launch(HC_PERMS)
                     }
                     PermRow(Icons.Outlined.Settings, "Battery unrestricted", "Reliable background delivery", state.battery, "Open") {
-                        act.askUnrestricted()
+                        act.openBatterySettings()
                     }
                     PermRow(Icons.Outlined.Lock, "Unused-app exemption",
-                        "Recommended · hibernation force-stops the app and kills the background scan · ${UnusedApp.label(state.unused)}",
-                        UnusedApp.exempt(state.unused), "Open", enabled = UnusedApp.canManage(state.unused)) {
+                        "Recommended · hibernation force-stops the app and kills the background scan · ${state.unused.label}",
+                        state.unused.exempt, "Open", enabled = state.unused.canManage) {
                         runCatching { unusedLauncher.launch(UnusedApp.manageIntent(act)) }.onFailure { msg = "Can't open the setting: ${it.message}" }
                     }
                 }
@@ -187,8 +191,8 @@ private fun StatusCard(s: UiState) {
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             Spacer(Modifier.height(4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusChip("Scan: ${s.scan}", s.scan.startsWith("armed"))
-                if (s.tokenSet) StatusChip(if (s.ack == "-") "Scale: not synced yet" else s.ack, s.ack.startsWith(AckWorker.SYNCED))
+                StatusChip("Scan: ${s.scan?.label ?: "-"}", s.scan?.armed == true)
+                if (s.tokenSet) StatusChip(s.ack?.label() ?: "Scale: not synced yet", s.ack is AckStatus.Synced)
             }
         }
     }
@@ -208,32 +212,18 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
     var mac by remember { mutableStateOf(cfg.macText) }
     var profile by remember { mutableStateOf(cfg.profileSlot.toString()) }
     var token by remember { mutableStateOf(cfg.tokenHex) }
-    var showKey by remember { mutableStateOf(false) }
-    var showToken by remember { mutableStateOf(false) }
     val keyOk = BindKey.parse(key) != null
     val tokenOk = token.isEmpty() || MiToken.parse(token) != null
     val macOk = ScaleMac.parse(mac) != null
     SectionCard("Scale setup", Icons.Outlined.Edit) {
-        OutlinedTextField(
-            key, { key = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Bind key") },
-            supportingText = { Text("32 hex chars from Xiaomi cloud") }, isError = key.isNotEmpty() && !keyOk, singleLine = true,
-            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
-            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = { TextButton({ showKey = !showKey }) { Text(if (showKey) "Hide" else "Show") } },
-        )
+        SecretField(key, { key = it }, "Bind key", "32 hex chars from Xiaomi cloud", isError = key.isNotEmpty() && !keyOk)
         OutlinedTextField(
             mac, { mac = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Scale MAC") },
             placeholder = { Text("AA:BB:CC:DD:EE:FF") }, isError = mac.isNotEmpty() && !macOk, singleLine = true,
             textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
         )
-        OutlinedTextField(
-            token, { token = it.trim() }, Modifier.fillMaxWidth(), label = { Text("BLE token (optional)") },
-            supportingText = { Text("24 hex chars from Xiaomi cloud · lets the app clear the scale's sync icon") },
-            isError = !tokenOk, singleLine = true,
-            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
-            visualTransformation = if (showToken) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = { TextButton({ showToken = !showToken }) { Text(if (showToken) "Hide" else "Show") } },
-        )
+        SecretField(token, { token = it }, "BLE token (optional)",
+            "24 hex chars from Xiaomi cloud · lets the app clear the scale's sync icon", isError = !tokenOk)
         OutlinedTextField(
             profile, { profile = it }, Modifier.fillMaxWidth(), label = { Text("Profile slot") },
             supportingText = { Text("-1 = accept any user on the scale") }, singleLine = true,
@@ -246,6 +236,18 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
             enabled = keyOk && macOk && tokenOk, modifier = Modifier.align(Alignment.End),
         ) { Text("Save & arm") }
     }
+}
+
+@Composable
+private fun SecretField(value: String, onChange: (String) -> Unit, label: String, hint: String, isError: Boolean) {
+    var shown by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value, { onChange(it.trim()) }, Modifier.fillMaxWidth(), label = { Text(label) },
+        supportingText = { Text(hint) }, isError = isError, singleLine = true,
+        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+        visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = { TextButton({ shown = !shown }) { Text(if (shown) "Hide" else "Show") } },
+    )
 }
 
 @Composable

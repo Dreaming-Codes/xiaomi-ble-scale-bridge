@@ -232,7 +232,7 @@ ACTION 6.2 comfirm-offline-data [6.p2 = "idx,idx"]  -> ACTION_RSP, only for reco
 disconnect
 ```
 Implementation: `protocol/…/AckSession.kt` (pure Kotlin, unit-tested against a simulated scale and the
-HOTO vectors), `app/…/ScaleAck.kt` (GATT link + expedited WorkManager job, 45 s hard cap). It runs once
+HOTO vectors), `app/…/AckWorker.kt` (expedited WorkManager job, 45 s hard cap) over `app/…/GattLink.kt`. It runs once
 after each new MiBeacon weigh-in written by `Bridge.handle`, only when a BLE token is configured. It
 never changes the scan path: the broadcast reading is already stored before the connection starts.
 

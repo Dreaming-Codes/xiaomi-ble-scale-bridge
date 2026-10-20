@@ -30,12 +30,12 @@ object Bridge {
                 val reading = r.reading
                 if (!acceptsBroadcast(reading, cfg.profile, cfg.lastTs)) return@withLock
                 write(ctx, cfg, listOf(reading))
-                ScaleAck.enqueue(ctx)
+                AckWorker.enqueue(ctx)
             }
         }
     }
 
-    suspend fun storeOfflineReturningConfirmable(ctx: Context, records: List<OfflineRecord>): List<Int> = lock.withLock {
+    suspend fun importOffline(ctx: Context, records: List<OfflineRecord>): List<Int> = lock.withLock {
         val cfg = Config(ctx)
         val sel = selectOffline(records, cfg.profile, cfg.history)
         if (sel.fresh.isNotEmpty()) write(ctx, cfg, sel.fresh)

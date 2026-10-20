@@ -7,19 +7,31 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.ParcelUuid
 import android.util.Log
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.Worker
+import androidx.work.WorkerParameters
 import dev.lorenzo.s200.ScaleMac
-import androidx.work.*
 import java.util.concurrent.TimeUnit
+
+sealed class ArmResult(val label: String, val armed: Boolean = false) {
+    object NotConfigured : ArmResult("not configured")
+    object NoPermission : ArmResult("no BLUETOOTH_SCAN")
+    object BluetoothOff : ArmResult("bluetooth off")
+    object Recent : ArmResult("armed (recent)", armed = true)
+    class Started(rc: Int) : ArmResult("armed (rc=$rc)", armed = true)
+    class Denied(e: SecurityException) : ArmResult("security: ${e.message}")
+}
 
 object Scanner {
     private const val TAG = "S200Scanner"
     val FE95: ParcelUuid = ParcelUuid.fromString("0000fe95-0000-1000-8000-00805f9b34fb")
     private val debounce = ArmDebounce()
 
-    fun filter(mac: ScaleMac): ScanFilter = ScanFilter.Builder()
+    private fun filter(mac: ScaleMac): ScanFilter = ScanFilter.Builder()
         .setServiceData(FE95, byteArrayOf(0x48, 0x59), byteArrayOf(0xFF.toByte(), 0xFF.toByte()))
         .setDeviceAddress(mac.address)
         .build()
@@ -29,14 +41,23 @@ object Scanner {
         SCAN_PI_FLAGS,
     )
 
-    fun arm(ctx: Context): String {
+    fun rearm(ctx: Context): ArmResult {
+        val result = arm(ctx)
+        WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
+            "watchdog", ExistingPeriodicWorkPolicy.UPDATE,
+            PeriodicWorkRequestBuilder<WatchdogWorker>(WATCHDOG_MINUTES, TimeUnit.MINUTES).build(),
+        )
+        return result
+    }
+
+    fun arm(ctx: Context): ArmResult {
         val cfg = Config(ctx)
         val mac = cfg.mac
-        if (mac == null || cfg.key == null) return "not configured"
-        if (ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) return "no BLUETOOTH_SCAN"
+        if (mac == null || cfg.key == null) return ArmResult.NotConfigured
+        if (!ctx.granted(Manifest.permission.BLUETOOTH_SCAN)) return ArmResult.NoPermission
         val scanner = ctx.getSystemService(BluetoothManager::class.java)?.adapter?.takeIf { it.isEnabled }?.bluetoothLeScanner
-            ?: return "bluetooth off"
-        if (debounce.recent()) return "armed (recent)"
+            ?: return ArmResult.BluetoothOff
+        if (debounce.recent()) return ArmResult.Recent
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
@@ -45,18 +66,11 @@ object Scanner {
             scanner.stopScan(pi(ctx))
             val rc = scanner.startScan(listOf(filter(mac)), settings, pi(ctx))
             debounce.mark()
-            "armed (rc=$rc)".also { Log.i(TAG, it) }
-        } catch (e: SecurityException) { "security: ${e.message}" }
-    }
-
-    fun scheduleWatchdog(ctx: Context) {
-        WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
-            "watchdog", ExistingPeriodicWorkPolicy.UPDATE,
-            PeriodicWorkRequestBuilder<WatchdogWorker>(WATCHDOG_MINUTES, TimeUnit.MINUTES).build(),
-        )
+            ArmResult.Started(rc).also { Log.i(TAG, it.label) }
+        } catch (e: SecurityException) { ArmResult.Denied(e) }
     }
 }
 
 class WatchdogWorker(ctx: Context, p: WorkerParameters) : Worker(ctx, p) {
-    override fun doWork(): Result { Log.i("S200Watchdog", Scanner.arm(applicationContext)); return Result.success() }
+    override fun doWork(): Result { Log.i("S200Watchdog", Scanner.arm(applicationContext).label); return Result.success() }
 }
