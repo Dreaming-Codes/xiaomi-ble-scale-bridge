@@ -72,9 +72,9 @@ fun BridgeTheme(content: @Composable () -> Unit) {
 }
 
 private data class UiState(
-    val configured: Boolean = false, val scan: String = "-", val presence: String = "-",
-    val bt: Boolean = false, val connect: Boolean = false, val tokenSet: Boolean = false, val ack: String = "-", val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val associated: Boolean = false,
-    val history: List<Reading> = emptyList(), val presenceLog: List<PresenceEntry> = emptyList(),
+    val configured: Boolean = false, val scan: String = "-",
+    val bt: Boolean = false, val connect: Boolean = false, val tokenSet: Boolean = false, val ack: String = "-", val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false,
+    val history: List<Reading> = emptyList(),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -87,19 +87,18 @@ private fun BridgeScreen(act: SetupActivity) {
 
     LaunchedEffect(tick) {
         val scan = Scanner.arm(act)
-        val presence = Companion.observe(act)
         Scanner.scheduleWatchdog(act)
         val hc = if (HealthConnectClient.getSdkStatus(act) == HealthConnectClient.SDK_AVAILABLE)
             runCatching { HealthConnectClient.getOrCreate(act).permissionController.getGrantedPermissions().containsAll(HC_PERMS) }.getOrNull()
         else null
         state = UiState(
-            configured = cfg.configured, scan = scan, presence = presence,
+            configured = cfg.configured, scan = scan,
             bt = act.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED,
             connect = act.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED,
             tokenSet = cfg.token != null, ack = cfg.ackStatus,
             notify = act.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
             hc = hc, battery = act.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(act.packageName),
-            associated = presence == "observing presence", history = cfg.history, presenceLog = cfg.presenceLog,
+            history = cfg.history,
         )
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refresh() }
@@ -113,7 +112,7 @@ private fun BridgeScreen(act: SetupActivity) {
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = { LargeTopAppBar(title = { Text(BuildConfig.APP_NAME) }, scrollBehavior = scroll) },
+        topBar = { LargeTopAppBar(title = { Text("S200 Bridge") }, scrollBehavior = scroll) },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { pad ->
         LazyColumn(
@@ -129,28 +128,22 @@ private fun BridgeScreen(act: SetupActivity) {
                     PermRow(Icons.Outlined.Search, "Bluetooth scan", "Find the scale's broadcasts", state.bt, "Grant") {
                         permLauncher.launch(Manifest.permission.BLUETOOTH_SCAN)
                     }
-                    if (!Mode.presenceOnly) PermRow(Icons.Outlined.Refresh, "Bluetooth connect", "Acknowledge readings so the scale stops blinking",
-                        state.connect, "Grant", enabled = state.tokenSet) {
+                    PermRow(Icons.Outlined.Refresh, "Bluetooth connect", "Re-arm after Bluetooth restarts; stop the scale blinking",
+                        state.connect, "Grant") {
                         permLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
                     }
                     PermRow(Icons.Outlined.Notifications, "Notifications", "Show each new weigh-in", state.notify, "Grant") {
                         permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
-                    if (!Mode.presenceOnly) PermRow(Icons.Outlined.Favorite, "Health Connect", "Write weight records",
+                    PermRow(Icons.Outlined.Favorite, "Health Connect", "Write weight records",
                         state.hc == true, if (state.hc == null) "Unavailable" else "Grant", enabled = state.hc != null) {
                         hcLauncher.launch(HC_PERMS)
                     }
                     PermRow(Icons.Outlined.Settings, "Battery unrestricted", "Reliable background delivery", state.battery, "Open") {
                         act.askUnrestricted()
                     }
-                    PermRow(Icons.Outlined.Share, "Companion association",
-                        if (Mode.presenceOnly) "Required · the only trigger in this build" else "Optional · step on the scale first",
-                        state.associated, "Associate", enabled = state.configured) {
-                        cfg.mac?.let { mac -> Companion.associate(act, mac) { msg = it; refresh() } }
-                    }
                 }
             }
-            if (Mode.presenceOnly) item { PresenceLogCard(state.presenceLog) }
             item { HistoryCard(state.history) }
         }
     }
@@ -188,7 +181,6 @@ private fun StatusCard(s: UiState) {
             Spacer(Modifier.height(4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusChip("Scan: ${s.scan}", s.scan.startsWith("armed"))
-                StatusChip("Presence: ${s.presence}", s.presence == "observing presence")
                 if (s.tokenSet) StatusChip(if (s.ack == "-") "Scale: not synced yet" else s.ack, s.ack.startsWith(AckWorker.SYNCED))
             }
         }
@@ -227,7 +219,7 @@ private fun SetupCard(cfg: Config, onSaved: () -> Unit) {
             placeholder = { Text("AA:BB:CC:DD:EE:FF") }, isError = mac.isNotEmpty() && !macOk, singleLine = true,
             textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
         )
-        if (!Mode.presenceOnly) OutlinedTextField(
+        OutlinedTextField(
             token, { token = it.trim() }, Modifier.fillMaxWidth(), label = { Text("BLE token (optional)") },
             supportingText = { Text("24 hex chars from Xiaomi cloud · lets the app clear the scale's sync icon") },
             isError = !tokenOk, singleLine = true,
@@ -266,8 +258,7 @@ private fun PermRow(icon: ImageVector, title: String, sub: String, granted: Bool
 @Composable
 private fun HistoryCard(rows: List<Reading>) {
     SectionCard("Recent readings", Icons.Outlined.DateRange) {
-        if (rows.isEmpty()) Text(if (Mode.presenceOnly) "Step on the scale. Readings appear here once a presence burst decodes one; nothing is written to Health Connect."
-            else "Step on the scale. Readings appear here once written to Health Connect.",
+        if (rows.isEmpty()) Text("Step on the scale. Readings appear here once written to Health Connect.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         rows.forEachIndexed { i, (ts, kg, prof) ->
             if (i > 0) HorizontalDivider()
@@ -282,21 +273,5 @@ private fun HistoryCard(rows: List<Reading>) {
     }
 }
 
-@Composable
-private fun PresenceLogCard(rows: List<PresenceEntry>) {
-    SectionCard("Presence events", Icons.Outlined.Info) {
-        if (rows.isEmpty()) Text("No presence events yet. Associate the scale, then step on it.",
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        rows.forEach { (at, what) ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(what, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                Text(SECS.format(Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault())), style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = FontFamily.Monospace)
-            }
-        }
-    }
-}
-
-private val SECS = DateTimeFormatter.ofPattern("MMM d HH:mm:ss")
 private val FMT = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
 private fun fmtTime(ts: Long) = FMT.format(Instant.ofEpochSecond(ts).atZone(ZoneId.systemDefault()))

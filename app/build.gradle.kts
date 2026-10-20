@@ -17,7 +17,7 @@ android {
     namespace = "dev.lorenzo.s200.bridge"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
-    defaultConfig { applicationId = "dev.lorenzo.s200.bridge"; minSdk = 34; targetSdk = 36; versionCode = 6; versionName = "0.6" }
+    defaultConfig { applicationId = "dev.lorenzo.s200.bridge"; minSdk = 34; targetSdk = 36; versionCode = 7; versionName = "0.7" }
     signingConfigs {
         if (releaseSigning != null) create("release") {
             storeFile = file(releaseSigning.getValue("storeFile"))
@@ -35,25 +35,7 @@ android {
         }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    buildFeatures { compose = true; buildConfig = true }
-    flavorDimensions += "mode"
-    productFlavors {
-        create("full") {
-            dimension = "mode"
-            isDefault = true
-            manifestPlaceholders["appLabel"] = "S200 Bridge"
-            buildConfigField("boolean", "PRESENCE_ONLY", "false")
-            buildConfigField("String", "APP_NAME", "\"S200 Bridge\"")
-        }
-        create("presenceOnly") {
-            dimension = "mode"
-            applicationIdSuffix = ".presence"
-            versionNameSuffix = "-presence"
-            manifestPlaceholders["appLabel"] = "S200 Presence Test"
-            buildConfigField("boolean", "PRESENCE_ONLY", "true")
-            buildConfigField("String", "APP_NAME", "\"S200 Presence Test\"")
-        }
-    }
+    buildFeatures { compose = true }
 }
 kotlin { jvmToolchain(17) }
 dependencies {

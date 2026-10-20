@@ -9,12 +9,15 @@ import android.util.Log
 import androidx.work.*
 import kotlinx.coroutines.*
 
-class RearmReceiver : BroadcastReceiver() {
+open class RearmReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        Log.i("S200Rearm", "${intent.action}: ${Scanner.arm(ctx)}; ${Companion.observe(ctx)}")
+        if (!shouldRearm(intent.action)) return
+        Log.i("S200Rearm", "${intent.action}: ${Scanner.arm(ctx)}")
         Scanner.scheduleWatchdog(ctx)
     }
 }
+
+class AclRearmReceiver : RearmReceiver()
 
 class ScanReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
@@ -48,7 +51,7 @@ class RetryWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
     override suspend fun doWork(): Result {
         val mac = inputData.getString("mac") ?: return Result.failure()
         val data = inputData.getByteArray("data") ?: return Result.failure()
-        return try { Bridge.handle(applicationContext, mac, data, via = "retry"); Result.success() }
+        return try { Bridge.handle(applicationContext, mac, data); Result.success() }
         catch (t: Throwable) { if (runAttemptCount < 5) Result.retry() else Result.failure() }
     }
 }

@@ -11,10 +11,14 @@ The proposed design holds up: a PendingIntent BLE scan, then a receiver, then a 
    - PendingIntent: explicit, FLAG_MUTABLE (required, because the stack fills in the results extras), FLAG_UPDATE_CURRENT (never FLAG_CANCEL_CURRENT, or stopScan breaks).
 3. **ScanReceiver** (manifest, exported=false): reads `EXTRA_LIST_SCAN_RESULT`, does the cheap dedupe on frame counter and timestamp in SharedPreferences, then enqueues **expedited** OneTimeWork (`setExpedited(RUN_AS_NON_EXPEDITED_WORK_REQUEST)`) as unique work that keeps the existing request.
 4. **Worker:** `S200Parser.parse` (module `:protocol`, already done and tested) → filter by profileId → `WeightRecord(time = scale ts, Mass.kilograms)` with `Metadata` clientRecordId = "s200-<ts>-<profile>". clientRecordId makes the write an idempotent upsert, so duplicates are harmless.
-5. **Re-arm:** receiver for BOOT_COMPLETED, LOCKED_BOOT_COMPLETED is not needed, and MY_PACKAGE_REPLACED. Also a **daily PeriodicWork watchdog** that calls startScan again. A duplicate startScan with the same PendingIntent is effectively replaced, but stop first to be safe.
+5. **Re-arm:** receiver for BOOT_COMPLETED, LOCKED_BOOT_COMPLETED is not needed, and MY_PACKAGE_REPLACED. Also BluetoothDevice.ACL_CONNECTED and a **15-minute plain PeriodicWork watchdog** that calls startScan again. A duplicate startScan with the same PendingIntent is effectively replaced, but stop first to be safe.
 
 ## Corrections and additions to the proposal
-- **Bluetooth toggle kills the scan.** The PendingIntent scan does not come back after BT off→on, and `BluetoothAdapter.ACTION_STATE_CHANGED` cannot be received by a manifest receiver on API 26+ (it is not on the implicit-broadcast exemption list). Fix: the daily watchdog re-arms, and opening the app re-arms too. Worst case after a BT toggle is up to about 24 h of missed weigh-ins. Sources: SO 57283343; Nordic Scanner-Compat issue #70.
+- **Bluetooth toggle kills the scan.** The PendingIntent scan does not come back after BT off→on (AOSP android16 `ScanController`/`ScanManager` clean up all scanners when the stack stops).
+  - `BluetoothAdapter.ACTION_STATE_CHANGED` never reaches a manifest receiver at targetSdk 26+. `BluetoothManagerService.broadcastIntentStateChange` sends it implicitly with only `FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT`, it is not in any `allow-implicit-broadcast` sysconfig, and `BroadcastSkipPolicy.disallowBackgroundStart` drops it ("Background execution not allowed").
+  - `BluetoothDevice.ACTION_ACL_CONNECTED` does: `RemoteDevices` adds `FLAG_RECEIVER_INCLUDE_BACKGROUND` and requires `BLUETOOTH_CONNECT`. After a toggle, the first reconnect of any device (watch, earbuds, car, or the scale's own GATT ack) re-arms. The receiver is exported because the sender is the Bluetooth app's uid, and a spoofed intent only triggers a debounced re-arm.
+  - Fallback: the watchdog runs every 15 minutes as plain WorkManager periodic work (no alarms, no expedited work). It skips stop/start when Bluetooth is off and respects Doze maintenance windows and standby buckets, so the worst case after a toggle is the next window.
+  - Opening the app also re-arms.
 - **HC background write:** there is no extra permission. Only `READ_HEALTH_DATA_IN_BACKGROUND` exists, and it is for reads. WRITE_WEIGHT is enough from a Worker. Source: d.android.com/health-and-fitness/health-connect/write-data and read-data.
   Caveat to test on the Pixel: HC's rate limits are stricter for background callers, but irrelevant at about 1 write a day.
 - **Scale MAC:** the parser uses `ScanResult.device.address`. This only works if the scale uses a public or static address, which is typical for MiBeacon. With BLUETOOTH_SCAN neverForLocation, Android does **not** strip the address, but it does strip *beacon* data for some known beacon formats (iBeacon/Eddystone). MiBeacon 0xFE95 is not on that list. Verify once the scale arrives.
@@ -35,37 +39,11 @@ The proposed design holds up: a PendingIntent BLE scan, then a receiver, then a 
 - **Multi-user scale:** filter by profileId (configurable).
 - Validate on the device: offload, burst capture with LOW_POWER, and delivery in Doze. The user typically picks up the phone in the morning anyway, so maintenance windows are likely.
 
-## CompanionDeviceManager presence (optional second trigger, implemented)
-Verdict: **viable as a supplement, not reliable as the only trigger.** The PendingIntent scan stays primary.
-
-- **Works for a broadcast-only beacon.** BLE presence is a system_server scan on the associated device's **address only**; there is no connection or GATT.
-  - AOSP `services/companion/.../devicepresence/BleDeviceProcessor.java`: MAC ScanFilters, `CALLBACK_TYPE_FIRST_MATCH | MATCH_LOST`, `SCAN_MODE_LOW_POWER`.
-  - CDM docs: "For Bluetooth LE devices, this is based on scanning for device with the given address."
-  - Needs a stable scale MAC.
-  - The scale must be advertising during association, so step on it first.
-- **Big caveat, latency.** The AOSP comment says LOW_POWER "usually takes from 20 seconds to 2 minutes" to find a device. The S200 advertises for only a few seconds per weigh-in (a sleepy device in xiaomi-ble).
-  - Presence may miss short weigh-ins.
-  - When it does fire, `ScaleCompanionService` runs a LOW_LATENCY burst scan, capped at 60 s, to catch the encrypted adv.
-- **FIRST_MATCH/MATCH_LOST depend on controller onfound/onlost tracking.** If the Pixel's controller lacks it, the system scan fails silently. Check with `dumpsys companiondevice`.
-- **BT toggle:** survives. `BleDeviceProcessor.checkBleState()` restarts the scan when LE is re-enabled.
-- **Standby:** the App Standby docs list "Companion device apps" as exempt from the restricted bucket and the inactivity trigger.
-  - `REQUEST_COMPANION_RUN_IN_BACKGROUND` puts an associated app on the power-save allowlist. This also protects the PendingIntent/WorkManager path.
-  - The bound CompanionDeviceService raises process priority.
-  - Delivery under deep Doze is unverified.
-- **Permissions:**
-  - `REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE` and `REQUEST_COMPANION_RUN_IN_BACKGROUND` (both normal).
-  - The service is guarded by `BIND_COMPANION_DEVICE_SERVICE`.
-  - `companion_device_setup` feature, required=false.
-  - No location permission is needed for association.
-- **API changes:**
-  - API 33: `onDeviceAppeared(AssociationInfo)` replaces the String variant.
-  - API 36: `startObservingDevicePresence(String)` and `onDeviceAppeared/Disappeared` are deprecated. Use `ObservingDevicePresenceRequest.Builder().setAssociationId(id)` with `onDevicePresenceEvent(DevicePresenceEvent)` (EVENT_BLE_APPEARED / DISAPPEARED).
-  - The code uses the API 36 path at runtime, with the legacy path for minSdk 34-35.
-- **Re-observe** runs on app open, BOOT_COMPLETED, MY_PACKAGE_REPLACED, and in the daily watchdog.
+## CompanionDeviceManager presence (removed in v0.7)
+A presence-only field test (v0.6-presence) never fired for the S200's short advertising bursts, so CDM association, presence observation and the companion service were removed.
 
 ## Status / build
 - `:protocol`: pure JVM, AES-CCM on javax AES/ECB. Tests 3/3 pass: the xiaomi-ble vector gives 62.25 kg, profile 1, ts 1762728842; a wrong key and tampered data are rejected.
 - `:app`: `assembleDebug` OK. Untested on device. compileSdk/targetSdk 36, minSdk 34.
 - **Build:** set `sdk.dir` in `local.properties` (or `ANDROID_HOME`), then `gradle :protocol:test :app:assembleDebug`. JDK 17+ and Gradle 8.13+ are needed.
-- **Flavors:** `full` (default, `dev.lorenzo.s200.bridge`, `assembleFullRelease`) is the real bridge. `presenceOnly` (`dev.lorenzo.s200.bridge.presence`, "S200 Presence Test", `assemblePresenceOnlyRelease`) installs alongside it: no PendingIntent scan, no Health Connect writes, no GATT ack. CDM presence "appeared" runs the 60 s burst scan only; decoded weigh-ins go to in-app history plus a "Presence test" notification, and every presence event is logged in the UI.
   - NixOS: `nix-build sdk.nix -o .android-sdk` gives platform 36 and build-tools 36.0.0. Then set `android.aapt2FromMavenOverride` (see gradle.properties).

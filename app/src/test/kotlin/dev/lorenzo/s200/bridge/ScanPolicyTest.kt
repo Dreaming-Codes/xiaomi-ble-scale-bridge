@@ -1,7 +1,7 @@
 package dev.lorenzo.s200.bridge
 
 import android.app.PendingIntent
-import android.companion.DevicePresenceEvent
+import androidx.work.PeriodicWorkRequest
 import kotlin.test.*
 
 class ScanPolicyTest {
@@ -10,10 +10,17 @@ class ScanPolicyTest {
         assertEquals(0, SCAN_PI_FLAGS and PendingIntent.FLAG_CANCEL_CURRENT)
     }
 
-    @Test fun presenceAppearedRearmsBackgroundScan() {
-        assertEquals(PresenceReaction.REARM_AND_BURST, presenceReaction(DevicePresenceEvent.EVENT_BLE_APPEARED))
-        assertEquals(PresenceReaction.STOP, presenceReaction(DevicePresenceEvent.EVENT_BLE_DISAPPEARED))
-        assertEquals(PresenceReaction.IGNORE, presenceReaction(DevicePresenceEvent.EVENT_BT_CONNECTED))
+    @Test fun rearmsOnBootUpdateAndAclConnectOnly() {
+        assertTrue(shouldRearm("android.intent.action.BOOT_COMPLETED"))
+        assertTrue(shouldRearm("android.intent.action.MY_PACKAGE_REPLACED"))
+        assertTrue(shouldRearm("android.bluetooth.device.action.ACL_CONNECTED"))
+        assertFalse(shouldRearm("android.bluetooth.adapter.action.STATE_CHANGED"))
+        assertFalse(shouldRearm("android.bluetooth.device.action.ACL_DISCONNECTED"))
+        assertFalse(shouldRearm(null))
+    }
+
+    @Test fun watchdogUsesTheShortestPlainPeriodicInterval() {
+        assertEquals(PeriodicWorkRequest.MIN_PERIODIC_INTERVAL_MILLIS, WATCHDOG_MINUTES * 60_000)
     }
 
     @Test fun armStaysUnderFiveStartsPer30s() {

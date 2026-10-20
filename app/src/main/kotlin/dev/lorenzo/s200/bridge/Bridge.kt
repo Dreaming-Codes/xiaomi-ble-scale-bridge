@@ -18,10 +18,9 @@ import kotlin.math.abs
 object Bridge {
     private const val TAG = "S200Bridge"
     private const val SAME_READING_SEC = 5
-    private val lock = Mutex() // receiver, companion service and ack worker may race
+    private val lock = Mutex()
 
-    /** Throws on HC failure so the caller can retry; clientRecordId makes a retried insert idempotent. */
-    suspend fun handle(ctx: Context, address: String, data: ByteArray, via: String = "background scan") = lock.withLock {
+    suspend fun handle(ctx: Context, address: String, data: ByteArray) = lock.withLock {
         val cfg = Config(ctx)
         val key = cfg.key ?: return@withLock
         val mac = ScaleMac.parse(address) ?: return@withLock
@@ -32,7 +31,6 @@ object Bridge {
                 if (cfg.profile.let { it != null && it != m.profileId }) return@withLock
                 if (m.timestampEpochSec <= cfg.lastTs) return@withLock
                 val reading = Reading(m.timestampEpochSec, m.weightKg, m.profileId)
-                if (Mode.presenceOnly) return@withLock recordPresenceTest(ctx, cfg, reading, via)
                 write(ctx, cfg, listOf(reading))
                 ScaleAck.enqueue(ctx)
             }
@@ -61,16 +59,6 @@ object Bridge {
             if (readings.size > 1) " +${readings.size - 1} more" else ""
         Log.i(TAG, cfg.lastStatus)
         runCatching { WeighInNotifier.post(ctx, latest, prev) }.onFailure { Log.w(TAG, "notify failed", it) }
-    }
-
-    private fun recordPresenceTest(ctx: Context, cfg: Config, r: Reading, via: String) {
-        val received = System.currentTimeMillis()
-        cfg.addReading(r)
-        cfg.lastTs = r.epochSec
-        val detail = presenceTestDetail(via, cfg.lastAppearedMs.takeIf { it > 0 }, received)
-        cfg.lastStatus = "${presenceTestTitle(r.kg)} ($detail)"
-        Log.i(TAG, cfg.lastStatus)
-        runCatching { WeighInNotifier.postPresenceTest(ctx, r, detail) }.onFailure { Log.w(TAG, "notify failed", it) }
     }
 
     private fun weightRecord(r: Reading) = WeightRecord(

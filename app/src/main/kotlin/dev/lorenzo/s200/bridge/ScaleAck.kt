@@ -38,7 +38,7 @@ object ScaleAck {
     private const val WORK = "scale-ack"
 
     fun enqueue(ctx: Context) {
-        if (Mode.presenceOnly || Config(ctx).token == null) return
+        if (Config(ctx).token == null) return
         val req = OneTimeWorkRequestBuilder<AckWorker>()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
