@@ -13,3 +13,8 @@ result
 secrets.properties
 .idea/
 *.iml
+__pycache__/
+btsnoop*.log
+*.cfa
+plugin/
+plugin-*/
