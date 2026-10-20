@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.annotation.RequiresApi
 import dev.lorenzo.s200.ScaleMac
 import kotlinx.coroutines.*
 
@@ -58,6 +59,7 @@ class ScaleCompanionService : CompanionDeviceService() {
     private val main = Handler(Looper.getMainLooper())
     private var cb: ScanCallback? = null
 
+    @RequiresApi(36)
     override fun onDevicePresenceEvent(event: DevicePresenceEvent) {
         when (event.event) {
             DevicePresenceEvent.EVENT_BLE_APPEARED -> burstScan()

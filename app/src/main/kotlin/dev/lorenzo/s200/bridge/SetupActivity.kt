@@ -72,7 +72,7 @@ fun BridgeTheme(content: @Composable () -> Unit) {
 
 private data class UiState(
     val configured: Boolean = false, val scan: String = "-", val presence: String = "-",
-    val bt: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val associated: Boolean = false,
+    val bt: Boolean = false, val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val associated: Boolean = false,
     val history: List<Reading> = emptyList(),
 )
 
@@ -94,13 +94,14 @@ private fun BridgeScreen(act: SetupActivity) {
         state = UiState(
             configured = cfg.configured, scan = scan, presence = presence,
             bt = act.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED,
+            notify = act.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
             hc = hc, battery = act.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(act.packageName),
             associated = presence == "observing presence", history = cfg.history,
         )
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refresh() }
 
-    val btLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh() }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh() }
     val hcLauncher = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { refresh() }
     val snackbar = remember { SnackbarHostState() }
     var msg by remember { mutableStateOf<String?>(null) }
@@ -123,7 +124,10 @@ private fun BridgeScreen(act: SetupActivity) {
             item {
                 SectionCard("Permissions", Icons.Outlined.Lock) {
                     PermRow(Icons.Outlined.Search, "Bluetooth scan", "Find the scale's broadcasts", state.bt, "Grant") {
-                        btLauncher.launch(Manifest.permission.BLUETOOTH_SCAN)
+                        permLauncher.launch(Manifest.permission.BLUETOOTH_SCAN)
+                    }
+                    PermRow(Icons.Outlined.Notifications, "Notifications", "Show each new weigh-in", state.notify, "Grant") {
+                        permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                     PermRow(Icons.Outlined.Favorite, "Health Connect", "Write weight records",
                         state.hc == true, if (state.hc == null) "Unavailable" else "Grant", enabled = state.hc != null) {

@@ -38,9 +38,12 @@ object Bridge {
                 )
                 HealthConnectClient.getOrCreate(ctx).insertRecords(listOf(rec))
                 cfg.lastTs = m.timestampEpochSec
-                cfg.addReading(Reading(m.timestampEpochSec, m.weightKg, m.profileId))
+                val reading = Reading(m.timestampEpochSec, m.weightKg, m.profileId)
+                val prev = cfg.history.firstOrNull { it.profile == m.profileId }
+                cfg.addReading(reading)
                 cfg.lastStatus = "wrote ${m.weightKg} kg @ $t (profile ${m.profileId})"
                 Log.i(TAG, cfg.lastStatus)
+                runCatching { WeighInNotifier.post(ctx, reading, prev) }.onFailure { Log.w(TAG, "notify failed", it) }
             }
         }
     }
