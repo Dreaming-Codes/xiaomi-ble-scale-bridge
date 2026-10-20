@@ -263,8 +263,7 @@ private fun ColumnScope.XiaomiSignInSection(onPicked: (CloudScale) -> Unit) {
         job = scope.launch {
             val result = xiaomiSignIn { login = it; if (it is XiaomiLogin.AwaitingBrowser) openBrowser(it.loginUrl) }
             runCatching { ctx.startActivity(Intent(ctx, SetupActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
-            val only = (result as? XiaomiLogin.Choose)?.scales?.singleOrNull()
-            if (only != null) pick(only) else login = result
+            login = result
         }
     }
     when (val l = login) {
@@ -289,11 +288,13 @@ private fun ColumnScope.XiaomiSignInSection(onPicked: (CloudScale) -> Unit) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text("Signed in. Looking for your scale in every Xiaomi region.", style = MaterialTheme.typography.bodyMedium)
         }
+        is XiaomiLogin.Picked -> LaunchedEffect(l) { pick(l.scale) }
         is XiaomiLogin.Choose -> {
-            Text("Pick your scale", style = MaterialTheme.typography.titleSmall)
+            Text("This account has ${l.scales.size} scales. Pick the one to bridge.", style = MaterialTheme.typography.titleSmall)
             l.scales.forEach { c ->
                 ListItem(
                     headlineContent = { Text(c.name) },
+                    overlineContent = { Text(c.model.displayName) },
                     supportingContent = { Text("${c.mac.address} · region ${c.region.code}", fontFamily = FontFamily.Monospace) },
                     leadingContent = { Icon(Icons.Outlined.Star, null) },
                     modifier = Modifier.clickable { pick(c) },

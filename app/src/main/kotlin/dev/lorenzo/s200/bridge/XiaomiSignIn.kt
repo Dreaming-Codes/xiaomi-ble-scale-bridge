@@ -18,12 +18,13 @@ sealed interface XiaomiLogin {
     data class AwaitingBrowser(val loginUrl: String) : XiaomiLogin
     data object Fetching : XiaomiLogin
     data class Choose(val scales: List<CloudScale>) : XiaomiLogin
+    data class Picked(val scale: CloudScale) : XiaomiLogin
     data class Failed(val reason: String) : XiaomiLogin
 }
 
 internal fun ScaleSearch.toLogin(): XiaomiLogin = when (this) {
-    is ScaleSearch.Found -> XiaomiLogin.Choose(scales)
-    ScaleSearch.NoneOnAccount -> XiaomiLogin.Failed("No Xiaomi Smart Scale S200 on this account in any region. Add it in Xiaomi Home, or enter the values by hand.")
+    is ScaleSearch.Found -> scales.singleOrNull()?.let(XiaomiLogin::Picked) ?: XiaomiLogin.Choose(scales)
+    ScaleSearch.NoneOnAccount -> XiaomiLogin.Failed("No supported Xiaomi scale on this account in any region. Add it in Xiaomi Home, or enter the values by hand.")
     is ScaleSearch.Unreachable -> XiaomiLogin.Failed(
         "No scale found, and these regions didn't answer: " + failed.entries.joinToString { (r, why) -> "${r.code} ($why)" } + ". Try again, or enter the values by hand.",
     )
