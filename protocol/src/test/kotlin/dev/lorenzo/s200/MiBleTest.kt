@@ -102,8 +102,7 @@ class AckSessionTest {
         val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, eventTimeoutMs = 50)
         s.login()
         assertTrue(scale.loggedIn)
-        val (n, recs) = s.requestOffline()
-        assertEquals(3, n)
+        val recs = s.requestOffline()
         assertEquals(listOf(1, 2, 3), recs.map { it.idx })
         assertEquals(0, s.confirmOffline(listOf(1, 2)))
         val confirm = scale.actions.last()
@@ -116,7 +115,7 @@ class AckSessionTest {
         val scale = FakeScale(token, dev, emptyList(), withCode = false, sglRandom = false)
         val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, eventTimeoutMs = 50)
         s.login()
-        assertEquals(0 to emptyList(), s.requestOffline())
+        assertEquals(emptyList(), s.requestOffline())
         assertEquals(0, s.confirmOffline(emptyList()))
     }
 
@@ -125,7 +124,7 @@ class AckSessionTest {
         val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, offlineTimeoutMs = 20)
         s.login()
         assertTrue(scale.loggedIn)
-        assertEquals(AckSession.NOTHING_STORED, s.requestOffline())
+        assertEquals(emptyList(), s.requestOffline())
         assertEquals(0, s.confirmOffline(emptyList()))
         assertEquals(listOf(6 to 1), scale.actions.map { it.siid to it.iid })
     }
@@ -134,7 +133,7 @@ class AckSessionTest {
         val scale = FakeScale(token, dev, emptyList(), offlineCode = -4004)
         val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, offlineTimeoutMs = 20)
         s.login()
-        assertEquals(AckSession.NOTHING_STORED, s.requestOffline())
+        assertEquals(emptyList(), s.requestOffline())
     }
 
     @Test fun wrongTokenFailsBeforeConfirming() {

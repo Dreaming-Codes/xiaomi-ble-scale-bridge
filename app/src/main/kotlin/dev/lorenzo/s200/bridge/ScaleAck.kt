@@ -66,7 +66,7 @@ class AckWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
                     s.login()
                     s to s.requestOffline()
                 }
-                val records = offline.second
+                val records = offline
                 val confirmable = Bridge.storeOfflineReturningConfirmable(ctx, records)
                 val code = runInterruptible(Dispatchers.IO) { session.confirmOffline(confirmable) }
                 if (code != null && code != 0) throw IllegalStateException("confirm code $code")

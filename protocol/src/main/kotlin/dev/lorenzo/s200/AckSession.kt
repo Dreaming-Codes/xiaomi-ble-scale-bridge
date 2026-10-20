@@ -54,9 +54,9 @@ class AckSession(
         channel = MiChannel(keys)
     }
 
-    fun requestOffline(): Pair<Int, List<OfflineRecord>> {
-        val rsp = try { call(Ms113.SIID_OFFLINE, Ms113.AIID_REQUEST_OFFLINE, timeoutMs = offlineTimeoutMs) } catch (e: RxferException) { return NOTHING_STORED }
-        if (rsp.code != null && rsp.code != 0) return NOTHING_STORED
+    fun requestOffline(): List<OfflineRecord> {
+        val rsp = try { call(Ms113.SIID_OFFLINE, Ms113.AIID_REQUEST_OFFLINE, timeoutMs = offlineTimeoutMs) } catch (e: RxferException) { return emptyList() }
+        if (rsp.code != null && rsp.code != 0) return emptyList()
         val n = (rsp.args[Ms113.PIID_DATA_NUM] as? SpecValue.Num)?.value?.toInt() ?: 0
         val recs = mutableListOf<OfflineRecord>()
         val deadline = System.currentTimeMillis() + eventTimeoutMs
@@ -66,7 +66,7 @@ class AckSession(
             val s = (ev.args[Ms113.PIID_OFFLINE_DATA] as? SpecValue.Str)?.value ?: ev.args.values.filterIsInstance<SpecValue.Str>().firstOrNull()?.value ?: continue
             recs += OfflineRecord.parseAll(s)
         }
-        return n to recs
+        return recs
     }
 
     fun confirmOffline(idxs: List<Int>): Int? {
@@ -75,7 +75,7 @@ class AckSession(
         return rsp.code
     }
 
-    fun call(siid: Int, aiid: Int, args: List<Pair<Int, SpecValue>> = emptyList(), timeoutMs: Long = stepTimeoutMs): SpecMsg {
+    private fun call(siid: Int, aiid: Int, args: List<Pair<Int, SpecValue>> = emptyList(), timeoutMs: Long = stepTimeoutMs): SpecMsg {
         val ch = channel ?: throw IllegalStateException("not logged in")
         val id = ++tid
         tx.send(Rxfer.PASS_THROUGH, ch.seal(MiotSpec.action(id, siid, aiid, args)))
@@ -110,6 +110,5 @@ class AckSession(
         val LOGIN = byteArrayOf(0x24, 0, 0, 0)
         val LOGIN_OK = byteArrayOf(0x21, 0, 0, 0)
         val LOGIN_ERR = byteArrayOf(0x23, 0, 0, 0)
-        val NOTHING_STORED = 0 to emptyList<OfflineRecord>()
     }
 }

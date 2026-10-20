@@ -16,7 +16,7 @@ value class ScaleMac private constructor(val address: String) {
     }
 }
 
-data class S200Measurement(val profileId: Int, val weightKg: Double, val timestampEpochSec: Long, val frameCounter: Int)
+data class S200Measurement(val profileId: Int, val weightKg: Double, val timestampEpochSec: Long)
 
 object S200Parser {
     val PRODUCT_IDS = setOf(0x45C9, 0x4C04, 0x4DCB)
@@ -45,7 +45,7 @@ object S200Parser {
         val weight = u32(pt, 4)
         val ts = u32(pt, 8)
         if (weight == 0L) return Result.Ignored("weight 0")
-        return Result.Ok(S200Measurement(profile, weight / 100.0, ts, d[4].toInt() and 0xFF))
+        return Result.Ok(S200Measurement(profile, weight / 100.0, ts))
     }
 
     private fun u16(b: ByteArray, o: Int) = (b[o].toInt() and 0xFF) or ((b[o + 1].toInt() and 0xFF) shl 8)

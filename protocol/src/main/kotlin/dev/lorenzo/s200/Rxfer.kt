@@ -43,7 +43,7 @@ object Rxfer {
 
 class RxferException(msg: String) : Exception(msg)
 
-class Endpoint(private val link: Link, val ch: Int, private val timeoutMs: Long) {
+class Endpoint(private val link: Link, private val ch: Int, private val timeoutMs: Long) {
     private data class Ack(val mode: Int, val type: Int, val lost: List<Int>)
 
     private val acks = ArrayDeque<Ack>()
@@ -52,13 +52,7 @@ class Endpoint(private val link: Link, val ch: Int, private val timeoutMs: Long)
     private var segCount = 0
     private val segs = sortedMapOf<Int, ByteArray>()
 
-    fun send(type: Int, data: ByteArray, single: Boolean = false) {
-        if (single) {
-            link.write(ch, Rxfer.sglCmd(type, data))
-            val a = awaitAck()
-            if (a.mode != Rxfer.SGL_ACK || a.type != Rxfer.ACK_SUCCESS) throw RxferException("ch%02x sgl ack %d/%d".format(ch, a.mode, a.type))
-            return
-        }
+    fun send(type: Int, data: ByteArray) {
         val parts = Rxfer.segments(data)
         link.write(ch, Rxfer.segCmd(type, parts.size))
         val ready = awaitAck()

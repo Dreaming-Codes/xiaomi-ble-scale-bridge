@@ -20,7 +20,6 @@ class Config(ctx: Context) {
     var macText: String get() = p.getString("mac", "")!!; set(v) = p.edit().putString("mac", v).apply()
     var profileSlot: Int get() = p.getInt("profile", -1); set(v) = p.edit().putInt("profile", v).apply()
     var lastTs: Long get() = p.getLong("lastTs", 0); set(v) = p.edit().putLong("lastTs", v).apply()
-    var lastStatus: String get() = p.getString("status", "-")!!; set(v) = p.edit().putString("status", v).apply()
     var tokenHex: String get() = p.getString("token", "")!!; set(v) = p.edit().putString("token", v).apply()
     var ackStatus: String get() = p.getString("ackStatus", "-")!!; set(v) = p.edit().putString("ackStatus", v).apply()
 

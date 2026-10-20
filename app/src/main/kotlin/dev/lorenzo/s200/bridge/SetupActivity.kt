@@ -72,7 +72,7 @@ fun BridgeTheme(content: @Composable () -> Unit) {
 }
 
 private data class UiState(
-    val configured: Boolean = false, val scan: String = "-",
+    val scan: String = "-",
     val bt: Boolean = false, val connect: Boolean = false, val tokenSet: Boolean = false, val ack: String = "-", val notify: Boolean = false, val hc: Boolean? = null, val battery: Boolean = false, val unused: Int = -1,
     val history: List<Reading> = emptyList(),
 )
@@ -92,7 +92,7 @@ private fun BridgeScreen(act: SetupActivity) {
             runCatching { HealthConnectClient.getOrCreate(act).permissionController.getGrantedPermissions().containsAll(HC_PERMS) }.getOrNull()
         else null
         state = UiState(
-            configured = cfg.configured, scan = scan,
+            scan = scan,
             bt = act.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED,
             connect = act.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED,
             tokenSet = cfg.token != null, ack = cfg.ackStatus,

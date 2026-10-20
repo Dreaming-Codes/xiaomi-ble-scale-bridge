@@ -22,7 +22,7 @@ class AclRearmReceiver : RearmReceiver()
 class ScanReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val err = intent.getIntExtra(BluetoothLeScanner.EXTRA_ERROR_CODE, 0)
-        if (err != 0) { Config(ctx).lastStatus = "scan error $err"; return }
+        if (err != 0) { Log.w("S200Scan", "scan error $err"); return }
         val results = intent.getParcelableArrayListExtra(BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT, ScanResult::class.java) ?: return
         val frames = results.mapNotNull { r -> r.scanRecord?.getServiceData(Scanner.FE95)?.let { r.device.address to it } }
         if (frames.isEmpty()) return

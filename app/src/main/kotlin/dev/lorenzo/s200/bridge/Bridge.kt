@@ -48,9 +48,8 @@ object Bridge {
         val prev = cfg.history.filter { it.profile == latest.profile && it.epochSec < latest.epochSec }.maxByOrNull { it.epochSec }
         readings.forEach(cfg::addReading)
         if (latest.epochSec > cfg.lastTs) cfg.lastTs = latest.epochSec
-        cfg.lastStatus = "wrote ${latest.kg} kg @ ${Instant.ofEpochSecond(latest.epochSec)} (profile ${latest.profile})" +
-            if (readings.size > 1) " +${readings.size - 1} more" else ""
-        Log.i(TAG, cfg.lastStatus)
+        Log.i(TAG, "wrote ${latest.kg} kg @ ${Instant.ofEpochSecond(latest.epochSec)} (profile ${latest.profile})" +
+            if (readings.size > 1) " +${readings.size - 1} more" else "")
         runCatching { WeighInNotifier.post(ctx, latest, prev) }.onFailure { Log.w(TAG, "notify failed", it) }
     }
 
