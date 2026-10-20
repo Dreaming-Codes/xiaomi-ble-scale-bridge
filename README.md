@@ -6,7 +6,7 @@
 
 S200 Bridge copies weigh-ins from a Xiaomi Smart Scale S200 (`xiaomi.scales.ms113`) into Health Connect, where apps such as MacroFactor read them. The scale broadcasts each reading as an encrypted Bluetooth advert. Android hands the advert to the app in the background, and the app decrypts it with the scale's bind key and writes a weight record.
 
-The app runs no foreground service, and you don't have to open it after setup. It has no internet permission, so it can't send data to Xiaomi or anywhere else.
+The app runs no foreground service, and you don't have to open it after setup. It uses the internet only while you sign in with Xiaomi during setup. Weigh-ins never leave the phone except through Health Connect.
 
 ## Requirements
 
@@ -14,7 +14,6 @@ You need the following:
 
 - An Android 14 or later phone (API 34) with Health Connect.
 - A Xiaomi Smart Scale S200 that is already added to Xiaomi Home on your Xiaomi account.
-- A computer with Python 3.9 or later, to get the scale's keys from the Xiaomi cloud once.
 - JDK 17 and the Android SDK 36, to build the APK yourself. The Gradle wrapper downloads Gradle 8.14.3.
 
 ## Install the app
@@ -71,7 +70,22 @@ The `Release` workflow in `.github/workflows/release.yml` fails if the tag doesn
 
 ## Set up the app
 
-The app needs three values from your Xiaomi account: the bind key, the BLE token, and the scale's MAC address. To get them and enter them in the app, follow [Get the bind key, BLE token, and MAC](docs/extract-keys.md). [Scale setup fields](docs/setup-fields.md) lists the format of each value.
+The app needs three values from your Xiaomi account: the bind key, the BLE token, and the scale's MAC address. The app gets them for you when you sign in with Xiaomi.
+
+1. Open S200 Bridge.
+2. In the **Scale setup** card, tap **Sign in with Xiaomi**. A Xiaomi sign-in page opens in a browser tab.
+3. Sign in with the account that has the scale in Xiaomi Home. You can use a password, Google, or Facebook. If Xiaomi asks for a verification code, enter it on the same page.
+4. Return to the app. If the browser tab stays open after the sign-in, close it. The app reads the scale's values, saves them, and shows **Saved**. If the account has more than one S200, tap the one you want.
+5. In the **Permissions** card, tap **Grant** or **Open** on each row, and allow the request.
+6. Step on the scale. The status card shows the new weight.
+
+If the sign-in fails, or you don't want the app to contact Xiaomi, follow [Get the bind key, BLE token, and MAC by hand](docs/extract-keys.md). [Scale setup fields](docs/setup-fields.md) lists the format of each value.
+
+### What the sign-in sends to Xiaomi
+
+Xiaomi keeps each account on one regional server, and an account can have devices on more than one. After you sign in, the app asks all eight regions that Xiaomi-cloud-tokens-extractor supports (`cn`, `de`, `us`, `ru`, `tw`, `sg`, `in`, and `i2`) for the account's homes and devices. It merges the S200 scales from every region and reads each scale's bind key from the region that lists the scale. You never pick a region. If a region doesn't answer and no other region lists a scale, the app names the regions that failed.
+
+The app makes these requests only while the sign-in runs. It saves the bind key, the BLE token, and the MAC, and it drops the Xiaomi session as soon as it has them. It never stores your password, because you type the password on Xiaomi's own page. It makes no network requests in the background.
 
 ## Learn how it works
 

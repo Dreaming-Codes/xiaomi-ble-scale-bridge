@@ -1,6 +1,8 @@
-# Get the bind key, BLE token, and MAC
+# Get the bind key, BLE token, and MAC by hand
 
-The app decrypts the scale's adverts with a bind key that only the Xiaomi cloud knows. This guide gets the bind key, the BLE token, and the MAC address from your Xiaomi account with [Xiaomi-cloud-tokens-extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor), then enters them in S200 Bridge. You do this once.
+The app decrypts the scale's adverts with a bind key that only the Xiaomi cloud knows. **Sign in with Xiaomi** in the app gets the bind key, the BLE token, and the MAC for you, as the [README](../README.md#set-up-the-app) describes. Use this guide when the in-app sign-in fails, or when you don't want the phone to contact Xiaomi. It gets the values on a computer with [Xiaomi-cloud-tokens-extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor), and you type them into S200 Bridge. You do this once.
+
+You need a computer with Python 3.9 or later.
 
 Before you start, add the scale to Xiaomi Home on your account. Don't remove the scale from your account or pair it again afterward. Either one makes Xiaomi issue new keys, and you have to repeat this guide.
 
@@ -65,7 +67,7 @@ To keep the full result as JSON, add `-o devices.json` to the command in step 2.
 ## Enter the values in the app
 
 1. Open S200 Bridge.
-2. In the **Scale setup** card, fill in the fields:
+2. In the **Scale setup** card, under **Or enter the values by hand**, fill in the fields:
 	- **Bind key**: the `BLE KEY` value.
 	- **Scale MAC**: the `MAC` value.
 	- **BLE token (optional)**: the `TOKEN` value. Without it, the app still records weigh-ins, but the scale's Bluetooth icon keeps blinking.
