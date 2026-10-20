@@ -21,7 +21,7 @@ import struct
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, NamedTuple
 
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
@@ -57,7 +57,6 @@ SPEC_OPS = {
     0xF0: "PROTOCOL_EXCHANGE",
 }
 
-# xiaomi.scales.ms113, from miot-spec.org (urn ...:xiaomi-ms113:1)
 MS113 = {
     (1, "p", 1): "manufacturer", (1, "p", 2): "model", (1, "p", 3): "serial-number",
     (1, "p", 4): "firmware-revision", (1, "p", 5): "serial-no",
@@ -83,8 +82,6 @@ MS113 = {
     (9, "e", 1001): "low-battery", (9, "e", 1035): "battery-status-change",
 }
 
-
-# ---------------------------------------------------------------- crypto
 
 @dataclass(frozen=True)
 class SessionKeys:
@@ -121,24 +118,29 @@ def encrypt(key: bytes, iv: bytes, counter: int, plaintext: bytes) -> bytes:
     return (counter & 0xFFFF).to_bytes(2, "little") + ct
 
 
-# ---------------------------------------------------------------- btsnoop / HCI / ATT
-
 @dataclass(frozen=True)
 class Att:
     ts_us: int
     conn: int
-    sent: bool          # host -> controller, i.e. phone -> scale
+    from_phone: bool
     opcode: int
     handle: int
     value: bytes
 
 
 ATT_VALUE_OPS = {0x12: "write-req", 0x52: "write-cmd", 0x1B: "notify", 0x1D: "indicate", 0x16: "prep-write"}
-BTSNOOP_EPOCH_DELTA_US = 0x00DCDDB30F2F8000  # 0000-01-01 -> 1970-01-01
+BTSNOOP_YEAR0_TO_UNIX_US = 0x00DCDDB30F2F8000
 
 
-def iter_btsnoop(path: Path) -> Iterator[tuple[int, bool, int, bytes, bool]]:
-    """Yield (ts_us_unix, sent, h4_type, payload, truncated)."""
+class HciRecord(NamedTuple):
+    ts_us_unix: int
+    from_phone: bool
+    h4_type: int
+    payload: bytes
+    truncated: bool
+
+
+def iter_btsnoop(path: Path) -> Iterator[HciRecord]:
     with path.open("rb") as f:
         hdr = f.read(16)
         if hdr[:8] != b"btsnoop\x00":
@@ -153,13 +155,13 @@ def iter_btsnoop(path: Path) -> Iterator[tuple[int, bool, int, bytes, bool]]:
             data = f.read(incl)
             if len(data) < incl or not data:
                 return
-            sent = not (flags & 1)
-            ts_unix = ts - BTSNOOP_EPOCH_DELTA_US
+            from_phone = not (flags & 1)
+            ts_unix = ts - BTSNOOP_YEAR0_TO_UNIX_US
             if datalink == 1002:
-                yield ts_unix, sent, data[0], data[1:], cut
+                yield HciRecord(ts_unix, from_phone, data[0], data[1:], cut)
             else:
-                kind = 0x01 if flags & 2 and sent else 0x04 if flags & 2 else 0x02
-                yield ts_unix, sent, kind, data, cut
+                kind = 0x01 if flags & 2 and from_phone else 0x04 if flags & 2 else 0x02
+                yield HciRecord(ts_unix, from_phone, kind, data, cut)
 
 
 @dataclass
@@ -184,7 +186,7 @@ def uuid_str(raw: bytes) -> str:
 def parse_capture(path: Path) -> Capture:
     cap = Capture()
     partial: dict[tuple[int, bool], tuple[int, bytearray]] = {}
-    for ts, sent, kind, p, cut in iter_btsnoop(path):
+    for ts, from_phone, kind, p, cut in iter_btsnoop(path):
         if cut and kind == 0x02:
             cap.truncated += 1
         if kind == 0x04 and len(p) >= 2 and p[0] == 0x3E:
@@ -198,7 +200,7 @@ def parse_capture(path: Path) -> Capture:
         hf, length = struct.unpack_from("<HH", p)
         conn, pb = hf & 0x0FFF, (hf >> 12) & 0x3
         frag = p[4:4 + length]
-        key = (conn, sent)
+        key = (conn, from_phone)
         if pb in (0b00, 0b10):
             if len(frag) < 4:
                 continue
@@ -217,7 +219,7 @@ def parse_capture(path: Path) -> Capture:
         if cid != 0x0004 or not pdu:
             continue
         op = pdu[0]
-        if op == 0x09 and not sent and len(pdu) >= 2:
+        if op == 0x09 and not from_phone and len(pdu) >= 2:
             each = pdu[1]
             for i in range(2, len(pdu) - each + 1, each):
                 item = pdu[i:i + each]
@@ -227,31 +229,27 @@ def parse_capture(path: Path) -> Capture:
         elif op in ATT_VALUE_OPS and len(pdu) >= 3:
             handle = struct.unpack_from("<H", pdu, 1)[0]
             value = pdu[5:] if op == 0x16 else pdu[3:]
-            cap.att.append(Att(ts, conn, sent, op, handle, value))
+            cap.att.append(Att(ts, conn, from_phone, op, handle, value))
     return cap
 
-
-# ---------------------------------------------------------------- rxfer framing
 
 @dataclass
 class Msg:
     ts_us: int
     conn: int
     handle: int
-    sent: bool
-    xtype: int | None   # rxfer data type, None for raw channel values
+    from_phone: bool
+    rxfer_type: int | None
     data: bytes
 
 
 class Reassembler:
-    """Mi rxfer: sn==0 control frames, sn>=1 data segments (see mible_rxfer.c)."""
-
     def __init__(self) -> None:
         self.seg: dict[tuple[int, int, bool], tuple[int, int, dict[int, bytes]]] = {}
 
     def feed(self, a: Att) -> tuple[str, Msg | None]:
         v = a.value
-        key = (a.conn, a.handle, a.sent)
+        key = (a.conn, a.handle, a.from_phone)
         if len(v) < 2:
             return f"short {v.hex()}", None
         sn = struct.unpack_from("<H", v)[0]
@@ -262,7 +260,7 @@ class Reassembler:
                 self.seg[key] = (typ, count, {})
                 return f"SEG_CMD {XFER_TYPES.get(typ, hex(typ))} frames={count}", None
             if mode == SGL_CMD:
-                return f"SGL_CMD {XFER_TYPES.get(typ, hex(typ))} len={len(arg)}", Msg(a.ts_us, a.conn, a.handle, a.sent, typ, arg)
+                return f"SGL_CMD {XFER_TYPES.get(typ, hex(typ))} len={len(arg)}", Msg(a.ts_us, a.conn, a.handle, a.from_phone, typ, arg)
             if mode in (SEG_ACK, SGL_ACK):
                 extra = f" sns={[struct.unpack_from('<H', arg, i)[0] for i in range(0, len(arg) - 1, 2)]}" if typ == 5 else ""
                 return f"{'SEG' if mode == SEG_ACK else 'SGL'}_ACK {ACK_NAMES.get(typ, hex(typ))}{extra}", None
@@ -279,10 +277,8 @@ class Reassembler:
             return f"  seg {sn}/{count}", None
         del self.seg[key]
         data = b"".join(parts[i] for i in sorted(parts))
-        return f"  seg {sn}/{count} -> {XFER_TYPES.get(typ, hex(typ))} {len(data)} B", Msg(a.ts_us, a.conn, a.handle, a.sent, typ, data)
+        return f"  seg {sn}/{count} -> {XFER_TYPES.get(typ, hex(typ))} {len(data)} B", Msg(a.ts_us, a.conn, a.handle, a.from_phone, typ, data)
 
-
-# ---------------------------------------------------------------- MIoT spec over BLE
 
 VALUE_TYPES = ["bool", "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "float", "string"]
 
@@ -421,8 +417,6 @@ def describe_offline(pt: bytes) -> str | None:
     return "; ".join(f"idx={r['idx']} duid={r['duid']} {r['weight']:.2f} kg status={r['status']} t={r['time']}" for r in recs) or None
 
 
-# ---------------------------------------------------------------- session tracking
-
 @dataclass
 class Login:
     app_rand: bytes | None = None
@@ -442,16 +436,16 @@ def full_counter(last: int, low16: int) -> int:
     return c
 
 
-def try_decrypt(login: Login, sent: bool, blob: bytes) -> tuple[int, bytes] | None:
+def try_decrypt(login: Login, from_phone: bool, blob: bytes) -> tuple[int, bytes] | None:
     if login.keys is None or len(blob) < 6:
         return None
     k = login.keys
-    key, iv = (k.app_key, k.app_iv) if sent else (k.dev_key, k.dev_iv)
-    ctr = full_counter(login.counters[sent], int.from_bytes(blob[:2], "little"))
+    key, iv = (k.app_key, k.app_iv) if from_phone else (k.dev_key, k.dev_iv)
+    ctr = full_counter(login.counters[from_phone], int.from_bytes(blob[:2], "little"))
     pt = decrypt(key, iv, ctr, blob[2:])
     if pt is None:
         return None
-    login.counters[sent] = max(login.counters[sent], ctr)
+    login.counters[from_phone] = max(login.counters[from_phone], ctr)
     return ctr, pt
 
 
@@ -477,7 +471,7 @@ def run(cap: Capture, token: bytes | None, mac: str | None, show_keys: bool, out
     for a in cap.att:
         if conns and a.conn not in conns:
             continue
-        arrow = "->" if a.sent else "<-"
+        arrow = "->" if a.from_phone else "<-"
         label = handle_label(cap, a.conn, a.handle)
         stamp = f"{(a.ts_us - t0) / 1e6:9.3f}s c{a.conn:#05x} {arrow} {label:<22}"
 
@@ -490,12 +484,12 @@ def run(cap: Capture, token: bytes | None, mac: str | None, show_keys: bool, out
             print(f"{stamp} UPNP {UPNP_NAMES[a.value[0]]}", file=out)
             continue
 
-        raw = try_decrypt(login, a.sent, a.value)
+        raw = try_decrypt(login, a.from_phone, a.value)
         if raw is not None:
             ctr, pt = raw
             stats["decrypted"] += 1
             line = decode_spec(pt)
-            stats["spec"].append((a.sent, pt))
+            stats["spec"].append((a.from_phone, pt))
             print(f"{stamp} ENC ctr={ctr} {line}", file=out)
             continue
 
@@ -503,27 +497,27 @@ def run(cap: Capture, token: bytes | None, mac: str | None, show_keys: bool, out
         print(f"{stamp} {note}", file=out)
         if msg is None:
             continue
-        if msg.xtype == 0x0B and msg.sent:
+        if msg.rxfer_type == 0x0B and msg.from_phone:
             login = Login(app_rand=msg.data[:16])
             stats["logins"] += 1
-        elif msg.xtype == 0x0D and not msg.sent:
+        elif msg.rxfer_type == 0x0D and not msg.from_phone:
             login.dev_rand = msg.data[:16]
             if len(msg.data) >= 48:
                 login.dev_confirm = msg.data[16:48]
-        elif msg.xtype == 0x0C and not msg.sent:
+        elif msg.rxfer_type == 0x0C and not msg.from_phone:
             login.dev_confirm = msg.data[:32]
-        elif msg.xtype == 0x0A and msg.sent and login.keys is not None:
+        elif msg.rxfer_type == 0x0A and msg.from_phone and login.keys is not None:
             want = hmac_sha256(login.keys.app_key, login.app_rand + login.dev_rand)
             print(f"{'':>34}app confirm {'matches' if msg.data[:32] == want else 'DIFFERS from'} HMAC(app_key)", file=out)
-        elif msg.xtype == 0x00:
-            got = try_decrypt(login, msg.sent, msg.data)
+        elif msg.rxfer_type == 0x00:
+            got = try_decrypt(login, msg.from_phone, msg.data)
             if got is None:
                 stats["undecrypted"] += 1
                 print(f"{'':>34}PASS_THROUGH not decryptable ({len(msg.data)} B)", file=out)
             else:
                 ctr, pt = got
                 stats["decrypted"] += 1
-                stats["spec"].append((msg.sent, pt))
+                stats["spec"].append((msg.from_phone, pt))
                 print(f"{'':>34}ENC ctr={ctr} {decode_spec(pt)}", file=out)
                 if (recs := describe_offline(pt)):
                     print(f"{'':>34}    offline: {recs}", file=out)

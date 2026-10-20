@@ -1,5 +1,3 @@
-"""Tests for decode_snoop.py: python3 -m unittest tools/test_decode_snoop.py"""
-
 from __future__ import annotations
 
 import io
@@ -13,8 +11,6 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import decode_snoop as D  # noqa: E402
 
-# Real capture from pedroct/hoto-xiaomi-balanca (tests/test_capture.py, PROTOCOL.md):
-# a Xiaomi Home <-> HOTO kitchen scale session. Published there as a test vector.
 HOTO_TOKEN = bytes.fromhex("728188d09c8b2d304cd87bf6")
 HOTO_APP_RAND = bytes.fromhex("1b864b0d0e227c243f1d8fe5b105d48f")
 HOTO_DEV_RAND = bytes.fromhex("41b8c8027dce475f2f51477628c3cc56")
@@ -33,9 +29,7 @@ H_UPNP, H_AVDTP, H_TX, H_RX = 0x000D, 0x0010, 0x0019, 0x001C
 H_MIOT_TX, H_MIOT_RX = 0x001F, 0x0021
 
 
-class Snoop:
-    """Minimal btsnoop (datalink 1002) writer."""
-
+class BtsnoopWriter:
     def __init__(self) -> None:
         self.recs: list[tuple[bool, bytes]] = []
 
@@ -47,12 +41,12 @@ class Snoop:
         body = bytes([0x01, 0x00]) + struct.pack("<H", conn) + bytes([0x00, 0x00]) + addr + bytes(7)
         self.hci_evt(bytes([0x3E, len(body)]) + body)
 
-    def att(self, sent: bool, pdu: bytes, conn: int = CONN, split: int | None = None) -> None:
+    def att(self, from_phone: bool, pdu: bytes, conn: int = CONN, split: int | None = None) -> None:
         l2 = struct.pack("<HH", len(pdu), 4) + pdu
         chunks = [l2] if split is None else [l2[:split], l2[split:]]
         for i, ch in enumerate(chunks):
             pb = 0b10 if i == 0 else 0b01
-            self.recs.append((sent, b"\x02" + struct.pack("<HH", conn | (pb << 12), len(ch)) + ch))
+            self.recs.append((from_phone, b"\x02" + struct.pack("<HH", conn | (pb << 12), len(ch)) + ch))
 
     def write(self, handle: int, value: bytes, **kw) -> None:
         self.att(True, b"\x52" + struct.pack("<H", handle) + value, **kw)
@@ -71,26 +65,26 @@ class Snoop:
     def save(self, path: Path) -> None:
         with path.open("wb") as f:
             f.write(b"btsnoop\x00" + struct.pack(">II", 1, 1002))
-            ts = D.BTSNOOP_EPOCH_DELTA_US + 1_700_000_000_000_000
-            for i, (sent, data) in enumerate(self.recs):
-                flags = (0 if sent else 1) | (2 if data[0] in (1, 4) else 0)
+            ts = D.BTSNOOP_YEAR0_TO_UNIX_US + 1_700_000_000_000_000
+            for i, (from_phone, data) in enumerate(self.recs):
+                flags = (0 if from_phone else 1) | (2 if data[0] in (1, 4) else 0)
                 f.write(struct.pack(">IIIIq", len(data), len(data), flags, 0, ts + i * 1000) + data)
 
 
-def seg_send(s: Snoop, sent: bool, handle: int, xtype: int, data: bytes, dmtu: int = 18) -> None:
-    put = s.write if sent else s.notify
-    ack = s.notify if sent else s.write
+def seg_send(s: BtsnoopWriter, from_phone: bool, handle: int, rxfer_type: int, data: bytes, dmtu: int = 18) -> None:
+    put = s.write if from_phone else s.notify
+    ack = s.notify if from_phone else s.write
     n = (len(data) + dmtu - 1) // dmtu
-    put(handle, b"\x00\x00" + bytes([D.SEG_CMD, xtype]) + struct.pack("<H", n))
+    put(handle, b"\x00\x00" + bytes([D.SEG_CMD, rxfer_type]) + struct.pack("<H", n))
     ack(handle, b"\x00\x00\x01\x01")
     for i in range(n):
         put(handle, struct.pack("<H", i + 1) + data[i * dmtu:(i + 1) * dmtu])
     ack(handle, b"\x00\x00\x01\x00")
 
 
-def sgl_send(s: Snoop, sent: bool, handle: int, xtype: int, data: bytes) -> None:
-    (s.write if sent else s.notify)(handle, b"\x00\x00" + bytes([D.SGL_CMD, xtype]) + data)
-    (s.notify if sent else s.write)(handle, b"\x00\x00\x03\x00")
+def sgl_send(s: BtsnoopWriter, from_phone: bool, handle: int, rxfer_type: int, data: bytes) -> None:
+    (s.write if from_phone else s.notify)(handle, b"\x00\x00" + bytes([D.SGL_CMD, rxfer_type]) + data)
+    (s.notify if from_phone else s.write)(handle, b"\x00\x00\x03\x00")
 
 
 def tv(t: int, raw: bytes) -> bytes:
@@ -102,7 +96,7 @@ def spec(tid: int, op: int, body: bytes) -> bytes:
     return struct.pack("<HHB", 0x2000 | n, tid, op) + body
 
 
-def run_capture(s: Snoop, token: bytes | None, mac: str | None = MAC) -> tuple[str, dict]:
+def run_capture(s: BtsnoopWriter, token: bytes | None, mac: str | None = MAC) -> tuple[str, dict]:
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "btsnoop_hci.log"
         s.save(p)
@@ -136,7 +130,6 @@ class CryptoVectors(unittest.TestCase):
 
 class SpecFraming(unittest.TestCase):
     def test_real_cuktech_set_and_response(self):
-        # AD1204U charger frames from a Xiaomi Home capture (zuyan9/ha-cuk-ble tests).
         self.assertEqual(D.decode_spec(bytes.fromhex("0c20210000010206000110 04".replace(" ", "")), {}),
                          "v2 tid=33 SET 2.p6=u8:4")
         self.assertEqual(D.decode_spec(bytes.fromhex("0b2021000101020600 0000".replace(" ", "")), {}),
@@ -145,7 +138,6 @@ class SpecFraming(unittest.TestCase):
                          "v2 tid=4660 PROP_CHANGED 2.p1=u32:3358722561")
 
     def test_s400_event_shape(self):
-        # xiaomi-s400-live: "LL 20 CC 00 07 08 PP 00 01 PP 00 SS a0 <csv>", siid 8 = online-data
         csv = b"523,1"
         pt = spec(7, 0x07, bytes([8]) + struct.pack("<HBH", 1, 1, 1) + tv(10, csv))
         self.assertEqual(pt[1], 0x20)
@@ -158,9 +150,9 @@ class SpecFraming(unittest.TestCase):
         self.assertIn("6.a2(comfirm-offline-data) code=None []", D.decode_spec(bare))
 
 
-def s200_session(token: bytes, app_rand: bytes, dev_rand: bytes) -> tuple[Snoop, list[bytes]]:
+def s200_session(token: bytes, app_rand: bytes, dev_rand: bytes) -> tuple[BtsnoopWriter, list[bytes]]:
     k = D.derive_keys(token, app_rand, dev_rand)
-    s = Snoop()
+    s = BtsnoopWriter()
     s.connect(CONN, MAC)
     s.discovery([(H_UPNP, b"\x10\x00"), (H_AVDTP, b"\x19\x00"), (H_TX, b"\x1a\x00"), (H_RX, b"\x1b\x00")])
     s.write(H_UPNP, b"\x24\x00\x00\x00")
@@ -182,11 +174,11 @@ def s200_session(token: bytes, app_rand: bytes, dev_rand: bytes) -> tuple[Snoop,
     ]
     ctr = {True: 0, False: 0}
     pts = []
-    for sent, pt in frames:
-        key, iv = (k.app_key, k.app_iv) if sent else (k.dev_key, k.dev_iv)
-        blob = D.encrypt(key, iv, ctr[sent], pt)
-        ctr[sent] += 1
-        (seg_send if len(blob) > 16 else sgl_send)(s, sent, H_TX if sent else H_RX, 0x00, blob)
+    for from_phone, pt in frames:
+        key, iv = (k.app_key, k.app_iv) if from_phone else (k.dev_key, k.dev_iv)
+        blob = D.encrypt(key, iv, ctr[from_phone], pt)
+        ctr[from_phone] += 1
+        (seg_send if len(blob) > 16 else sgl_send)(s, from_phone, H_TX if from_phone else H_RX, 0x00, blob)
         pts.append(pt)
     return s, pts
 
@@ -225,7 +217,7 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("no LE connection", out)
 
     def test_hoto_real_session_through_pipeline(self):
-        s = Snoop()
+        s = BtsnoopWriter()
         s.connect(CONN, MAC)
         s.discovery([(H_MIOT_TX, bytes.fromhex(D.MIOT_BLE_WRITE.replace("-", ""))[::-1]),
                      (H_MIOT_RX, bytes.fromhex(D.MIOT_BLE_NOTIFY.replace("-", ""))[::-1])])

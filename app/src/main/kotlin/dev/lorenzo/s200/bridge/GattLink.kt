@@ -1,6 +1,6 @@
 package dev.lorenzo.s200.bridge
 
-import android.annotation.SuppressLint
+import android.Manifest
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -10,6 +10,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.content.Context
+import androidx.annotation.RequiresPermission
 import dev.lorenzo.s200.Gatt
 import dev.lorenzo.s200.Link
 import java.util.UUID
@@ -17,7 +18,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
-@SuppressLint("MissingPermission")
 class GattLink private constructor(private val timeoutMs: Long) : Link, AutoCloseable {
     private val state = LinkedBlockingQueue<Int>()
     private val ops = LinkedBlockingQueue<Int>()
@@ -42,6 +42,7 @@ class GattLink private constructor(private val timeoutMs: Long) : Link, AutoClos
 
     private fun awaitOp(what: String): Int = ops.poll(timeoutMs, TimeUnit.MILLISECONDS) ?: throw IllegalStateException("$what timed out")
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private fun connect(ctx: Context, address: String) {
         val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter?.takeIf { it.isEnabled }
             ?: throw IllegalStateException("bluetooth off")
@@ -67,6 +68,7 @@ class GattLink private constructor(private val timeoutMs: Long) : Link, AutoClos
         }
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     override fun write(ch: Int, value: ByteArray) {
         val c = chars[ch] ?: throw IllegalStateException("unknown characteristic %04x".format(ch))
         val type = if (c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0) BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
@@ -88,6 +90,7 @@ class GattLink private constructor(private val timeoutMs: Long) : Link, AutoClos
 
     override fun read(ch: Int, timeoutMs: Long): ByteArray? = queue(ch).poll(timeoutMs, TimeUnit.MILLISECONDS)
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     override fun close() {
         if (!::gatt.isInitialized) return
         runCatching { gatt.disconnect() }
@@ -103,6 +106,7 @@ class GattLink private constructor(private val timeoutMs: Long) : Link, AutoClos
         private fun uuid(short: Int) = UUID.fromString("%08x-0000-1000-8000-00805f9b34fb".format(short))
         private fun uuid16(u: UUID) = (u.mostSignificantBits ushr 32).toInt() and 0xFFFF
 
+        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
         fun open(ctx: Context, address: String, timeoutMs: Long): GattLink {
             val l = GattLink(timeoutMs)
             try { l.connect(ctx, address) } catch (t: Throwable) { l.close(); throw t }

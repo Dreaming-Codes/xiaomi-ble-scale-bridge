@@ -47,4 +47,4 @@ A presence-only field test (v0.6-presence) never fired for the S200's short adve
 - `:protocol`: pure JVM, AES-CCM on javax AES/ECB. Tests 3/3 pass: the xiaomi-ble vector gives 62.25 kg, profile 1, ts 1762728842; a wrong key and tampered data are rejected.
 - `:app`: `assembleDebug` OK. Untested on device. compileSdk/targetSdk 36, minSdk 34.
 - **Build:** set `sdk.dir` in `local.properties` (or `ANDROID_HOME`), then `gradle :protocol:test :app:assembleDebug`. JDK 17+ and Gradle 8.13+ are needed.
-  - NixOS: `nix-build sdk.nix -o .android-sdk` gives platform 36 and build-tools 36.0.0. Then set `android.aapt2FromMavenOverride` (see gradle.properties).
+  - NixOS: `nix-build sdk.nix -o .android-sdk` gives platform 36 and build-tools 36.0.0. The Maven aapt2 binary is dynamically linked and won't run there, so add `android.aapt2FromMavenOverride=<sdk>/build-tools/36.0.0/aapt2` to gradle.properties.

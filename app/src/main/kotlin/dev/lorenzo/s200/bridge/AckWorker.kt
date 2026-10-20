@@ -2,7 +2,9 @@ package dev.lorenzo.s200.bridge
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Log
+import androidx.annotation.RequiresPermission
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -59,12 +61,14 @@ class AckWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
         val cfg = Config(ctx)
         val token = cfg.token ?: return Result.success()
         val mac = cfg.mac ?: return Result.success()
-        val status = if (ctx.granted(Manifest.permission.BLUETOOTH_CONNECT)) sync(ctx, mac, token) else AckStatus.NeedsPermission
+        val status = if (ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) sync(ctx, mac, token)
+            else AckStatus.NeedsPermission
         cfg.ack = status
         Log.i(TAG, status.label())
         return Result.success()
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private suspend fun sync(ctx: Context, mac: ScaleMac, token: MiToken): AckStatus {
         val rng = SecureRandom()
         var link: GattLink? = null
