@@ -8,6 +8,7 @@ import androidx.health.connect.client.records.metadata.Device
 import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.units.Mass
 import dev.lorenzo.s200.OfflineRecord
+import dev.lorenzo.s200.Reading
 import dev.lorenzo.s200.S200Parser
 import dev.lorenzo.s200.ScaleMac
 import kotlinx.coroutines.sync.Mutex
@@ -26,8 +27,7 @@ object Bridge {
         when (val r = S200Parser.parse(data, mac, key)) {
             is S200Parser.Result.Ignored -> Log.d(TAG, "ignored: ${r.reason}")
             is S200Parser.Result.Ok -> {
-                val m = r.m
-                val reading = Reading(m.timestampEpochSec, m.weightKg, m.profileId)
+                val reading = r.reading
                 if (!acceptsBroadcast(reading, cfg.profile, cfg.lastTs)) return@withLock
                 write(ctx, cfg, listOf(reading))
                 ScaleAck.enqueue(ctx)
@@ -74,6 +74,6 @@ internal fun selectOffline(records: List<OfflineRecord>, profile: Int?, history:
     val fresh = mine
         .filter { it.weightKg > 0 && known.none { k -> abs(k - it.epochSec) <= SAME_READING_SEC } }
         .distinctBy { it.epochSec }
-        .map { Reading(it.epochSec, it.weightKg, it.duid) }
+        .map { it.reading }
     return OfflineSelection(fresh, mine.map { it.idx })
 }

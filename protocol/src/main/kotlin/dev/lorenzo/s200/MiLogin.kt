@@ -23,10 +23,10 @@ object MiLogin {
     fun devConfirmation(k: SessionKeys, appRand: ByteArray, devRand: ByteArray) = hmacSha256(k.devKey, devRand + appRand)
     fun appConfirmation(k: SessionKeys, appRand: ByteArray, devRand: ByteArray) = hmacSha256(k.appKey, appRand + devRand)
 
-    fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray =
+    private fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray =
         Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(key, "HmacSHA256")) }.doFinal(data)
 
-    fun hkdfSha256(ikm: ByteArray, salt: ByteArray, info: ByteArray, len: Int): ByteArray {
+    private fun hkdfSha256(ikm: ByteArray, salt: ByteArray, info: ByteArray, len: Int): ByteArray {
         val prk = hmacSha256(salt, ikm)
         var t = byteArrayOf()
         val out = java.io.ByteArrayOutputStream()

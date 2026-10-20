@@ -8,6 +8,7 @@ class FakeScale(
     private val sglRandom: Boolean = true,
     private val answersOffline: Boolean = true,
     private val offlineCode: Int = 0,
+    private val confirmCode: Int = 0,
 ) : Link {
     private val notifications = mutableMapOf<Int, ArrayDeque<ByteArray>>()
     private val rxSeg = mutableMapOf<Int, Triple<Int, Int, MutableList<ByteArray>>>()
@@ -85,6 +86,7 @@ class FakeScale(
                         reply(m, listOf(3 to SpecValue.Num(SpecValue.U8, records.sumOf { it.split('_').size }.toLong())))
                         records.forEach { r -> event(6, 1, listOf(1 to SpecValue.Str(r))) }
                     }
+                    6 to 2 -> reply(m, emptyList(), confirmCode)
                     else -> reply(m, emptyList())
                 }
             }

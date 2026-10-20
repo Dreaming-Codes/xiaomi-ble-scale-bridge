@@ -11,9 +11,9 @@ class S200ParserTest {
     @Test fun xiaomiBleVector() {
         val r = S200Parser.parse(adv, mac, key)
         assertIs<S200Parser.Result.Ok>(r)
-        assertEquals(62.25, r.m.weightKg, 1e-9)
-        assertEquals(1, r.m.profileId)
-        assertEquals(0x69111b8aL, r.m.timestampEpochSec)
+        assertEquals(62.25, r.reading.kg, 1e-9)
+        assertEquals(1, r.reading.profile)
+        assertEquals(0x69111b8aL, r.reading.epochSec)
     }
     @Test fun wrongKeyRejected() {
         val bad = BindKey.parse("753b1b10e1cb35e4ac5e60fa45f3bf29")!!

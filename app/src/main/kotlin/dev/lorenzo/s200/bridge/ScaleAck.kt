@@ -62,14 +62,12 @@ class AckWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
             withTimeout(SESSION_MS) {
                 val (session, offline) = runInterruptible(Dispatchers.IO) {
                     val l = GattLink.open(ctx, mac.address, STEP_MS).also { link = it }
-                    val s = AckSession(l, token, { n -> ByteArray(n).also(rng::nextBytes) }, STEP_MS)
-                    s.login()
+                    val s = AckSession.login(l, token, { n -> ByteArray(n).also(rng::nextBytes) }, STEP_MS)
                     s to s.requestOffline()
                 }
                 val records = offline
                 val confirmable = Bridge.storeOfflineReturningConfirmable(ctx, records)
-                val code = runInterruptible(Dispatchers.IO) { session.confirmOffline(confirmable) }
-                if (code != null && code != 0) throw IllegalStateException("confirm code $code")
+                runInterruptible(Dispatchers.IO) { session.confirmOffline(confirmable) }
                 "$SYNCED ${stamp()}" + if (records.isNotEmpty()) " · ${records.size} stored readings imported" else ""
             }
         }.getOrElse { "Scale sync failed ${stamp()}: ${it.javaClass.simpleName} ${it.message ?: ""}".trim() }

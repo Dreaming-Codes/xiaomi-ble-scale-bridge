@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import dev.lorenzo.s200.Reading
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.time.Instant

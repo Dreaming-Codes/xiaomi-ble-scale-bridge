@@ -2,6 +2,7 @@ package dev.lorenzo.s200.bridge
 
 import androidx.health.connect.client.records.metadata.Device
 import dev.lorenzo.s200.OfflineRecord
+import dev.lorenzo.s200.Reading
 import java.time.Instant
 import kotlin.test.*
 
@@ -39,8 +40,17 @@ class BridgeRulesTest {
     }
 
     @Test fun historyFormatStaysReadable() {
-        assertEquals(Reading(1_792_499_000, 72.35, 1), Reading.decode("1792499000|72.35|1"))
-        assertEquals("1792499000|72.35|1", Reading(1_792_499_000, 72.35, 1).encode())
-        assertNull(Reading.decode("garbage"))
+        assertEquals(listOf(Reading(1_792_499_000, 72.35, 1), Reading(1_792_400_000, 72.5, 0)), History.decode("1792499000|72.35|1;garbage;1792400000|72.5|0"))
+        assertEquals("1792499000|72.35|1;1792400000|72.5|0", History.encode(listOf(Reading(1_792_499_000, 72.35, 1), Reading(1_792_400_000, 72.5, 0))))
+        assertEquals(emptyList(), History.decode(""))
+    }
+
+    @Test fun historyKeepsTheNewestTwentyNewestFirst() {
+        val h = (1L..20L).map { Reading(it * 10, 70.0, 1) }.reversed()
+        val after = History.add(h, Reading(105, 71.0, 1))
+        assertEquals(20, after.size)
+        assertEquals(listOf(200L, 190L), after.take(2).map { it.epochSec })
+        assertTrue(Reading(105, 71.0, 1) in after)
+        assertFalse(after.any { it.epochSec == 10L })
     }
 }

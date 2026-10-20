@@ -99,12 +99,11 @@ class AckSessionTest {
 
     @Test fun fullSessionConfirmsReportedRecords() {
         val scale = FakeScale(token, dev, listOf("1,1234567890,1,7235,0,1792499000", "2,1234567890,1,7190,0,1792585400_3,0,0,7000,2,1792585500"))
-        val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, eventTimeoutMs = 50)
-        s.login()
+        val s = AckSession.login(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, eventTimeoutMs = 50)
         assertTrue(scale.loggedIn)
         val recs = s.requestOffline()
         assertEquals(listOf(1, 2, 3), recs.map { it.idx })
-        assertEquals(0, s.confirmOffline(listOf(1, 2)))
+        s.confirmOffline(listOf(1, 2))
         val confirm = scale.actions.last()
         assertEquals(6 to 2, confirm.siid to confirm.iid)
         assertEquals(SpecValue.Str("1,2"), confirm.args[2])
@@ -113,40 +112,43 @@ class AckSessionTest {
 
     @Test fun responseWithoutCodeAndSegmentedRandom() {
         val scale = FakeScale(token, dev, emptyList(), withCode = false, sglRandom = false)
-        val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, eventTimeoutMs = 50)
-        s.login()
+        val s = AckSession.login(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, eventTimeoutMs = 50)
         assertEquals(emptyList(), s.requestOffline())
-        assertEquals(0, s.confirmOffline(emptyList()))
+        s.confirmOffline(emptyList())
     }
 
     @Test fun unansweredRequestMeansNothingStored() {
         val scale = FakeScale(token, dev, emptyList(), answersOffline = false)
-        val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, offlineTimeoutMs = 20)
-        s.login()
+        val s = AckSession.login(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, offlineTimeoutMs = 20)
         assertTrue(scale.loggedIn)
         assertEquals(emptyList(), s.requestOffline())
-        assertEquals(0, s.confirmOffline(emptyList()))
+        s.confirmOffline(emptyList())
         assertEquals(listOf(6 to 1), scale.actions.map { it.siid to it.iid })
     }
 
     @Test fun errorCodeOnRequestMeansNothingStored() {
         val scale = FakeScale(token, dev, emptyList(), offlineCode = -4004)
-        val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, offlineTimeoutMs = 20)
-        s.login()
+        val s = AckSession.login(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, offlineTimeoutMs = 20)
         assertEquals(emptyList(), s.requestOffline())
+    }
+
+    @Test fun rejectedConfirmFails() {
+        val scale = FakeScale(token, dev, listOf("1,1234567890,1,7235,0,1792499000"), confirmCode = -4001)
+        val s = AckSession.login(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50, eventTimeoutMs = 50)
+        assertEquals(listOf(1), s.requestOffline().map { it.idx })
+        assertEquals("confirm code -4001", assertFailsWith<IllegalStateException> { s.confirmOffline(listOf(1)) }.message)
     }
 
     @Test fun wrongTokenFailsBeforeConfirming() {
         val scale = FakeScale(MiToken.parse("ffffffffffffffffffffffff")!!, dev, emptyList())
-        val s = AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50)
-        assertFailsWith<LoginException> { s.login() }
+        assertFailsWith<LoginException> { AckSession.login(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50) }
         assertFalse(scale.loggedIn)
         assertTrue(scale.writes.none { it.first == Gatt.TX })
     }
 
     @Test fun loginWritesExpectedOpening() {
         val scale = FakeScale(token, dev, emptyList())
-        AckSession(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50).login()
+        AckSession.login(scale, token, { app.copyOf(it) }, stepTimeoutMs = 50)
         val hex = scale.writes.take(3).map { (ch, v) -> ch to v.joinToString("") { "%02x".format(it) } }
         assertEquals(listOf(Gatt.UPNP to "24000000", Gatt.AVDTP to "0000000b0100", Gatt.AVDTP to "0100000102030405060708090a0b0c0d0e0f"), hex)
     }

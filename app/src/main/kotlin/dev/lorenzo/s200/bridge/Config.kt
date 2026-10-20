@@ -3,15 +3,19 @@ package dev.lorenzo.s200.bridge
 import android.content.Context
 import dev.lorenzo.s200.BindKey
 import dev.lorenzo.s200.MiToken
+import dev.lorenzo.s200.Reading
 import dev.lorenzo.s200.ScaleMac
 
-data class Reading(val epochSec: Long, val kg: Double, val profile: Int) {
-    fun encode() = "$epochSec|$kg|$profile"
+internal object History {
+    private const val KEEP = 20
 
-    companion object {
-        fun decode(s: String): Reading? = s.split("|").takeIf { it.size == 3 }
-            ?.let { (a, b, c) -> runCatching { Reading(a.toLong(), b.toDouble(), c.toInt()) }.getOrNull() }
+    fun encode(rs: List<Reading>) = rs.joinToString(";") { "${it.epochSec}|${it.kg}|${it.profile}" }
+
+    fun decode(s: String): List<Reading> = s.split(";").mapNotNull { e ->
+        e.split("|").takeIf { it.size == 3 }?.let { (a, b, c) -> runCatching { Reading(a.toLong(), b.toDouble(), c.toInt()) }.getOrNull() }
     }
+
+    fun add(history: List<Reading>, r: Reading) = (listOf(r) + history).sortedByDescending { it.epochSec }.take(KEEP)
 }
 
 class Config(ctx: Context) {
@@ -29,6 +33,6 @@ class Config(ctx: Context) {
     val profile: Int? get() = profileSlot.takeIf { it >= 0 }
     val configured get() = key != null && mac != null
 
-    val history: List<Reading> get() = p.getString("hist", "")!!.split(";").mapNotNull(Reading::decode)
-    fun addReading(r: Reading) = p.edit().putString("hist", (listOf(r) + history).sortedByDescending { it.epochSec }.take(20).joinToString(";") { it.encode() }).apply()
+    val history: List<Reading> get() = History.decode(p.getString("hist", "")!!)
+    fun addReading(r: Reading) = p.edit().putString("hist", History.encode(History.add(history, r))).apply()
 }

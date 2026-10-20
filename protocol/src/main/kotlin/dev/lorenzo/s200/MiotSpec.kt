@@ -100,6 +100,8 @@ object MiotSpec {
 }
 
 data class OfflineRecord(val idx: Int, val miid: Long, val duid: Int, val weightKg: Double, val status: Int, val epochSec: Long) {
+    val reading get() = Reading(epochSec, weightKg, duid)
+
     companion object {
         fun parseAll(s: String): List<OfflineRecord> = s.split('_').mapNotNull(::parse)
 

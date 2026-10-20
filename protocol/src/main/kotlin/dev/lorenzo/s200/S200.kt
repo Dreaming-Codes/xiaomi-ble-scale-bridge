@@ -3,7 +3,7 @@ package dev.lorenzo.s200
 @JvmInline
 value class BindKey private constructor(val bytes: ByteArray) {
     companion object {
-        fun parse(hex: String): BindKey? = hex.takeIf { it.matches(Regex("[0-9a-fA-F]{32}")) }?.let { BindKey(it.chunked(2).map { b -> b.toInt(16).toByte() }.toByteArray()) }
+        fun parse(hex: String): BindKey? = hex.takeIf { it.matches(Regex("[0-9a-fA-F]{32}")) }?.let { BindKey(it.hexBytes()) }
     }
 }
 
@@ -16,7 +16,7 @@ value class ScaleMac private constructor(val address: String) {
     }
 }
 
-data class S200Measurement(val profileId: Int, val weightKg: Double, val timestampEpochSec: Long)
+data class Reading(val epochSec: Long, val kg: Double, val profile: Int)
 
 object S200Parser {
     val PRODUCT_IDS = setOf(0x45C9, 0x4C04, 0x4DCB)
@@ -24,7 +24,7 @@ object S200Parser {
     const val OBJ_WEIGHT = 0x4E16
 
     sealed interface Result {
-        data class Ok(val m: S200Measurement) : Result
+        data class Ok(val reading: Reading) : Result
         data class Ignored(val reason: String) : Result
     }
 
@@ -45,7 +45,7 @@ object S200Parser {
         val weight = u32(pt, 4)
         val ts = u32(pt, 8)
         if (weight == 0L) return Result.Ignored("weight 0")
-        return Result.Ok(S200Measurement(profile, weight / 100.0, ts))
+        return Result.Ok(Reading(ts, weight / 100.0, profile))
     }
 
     private fun u16(b: ByteArray, o: Int) = (b[o].toInt() and 0xFF) or ((b[o + 1].toInt() and 0xFF) shl 8)
