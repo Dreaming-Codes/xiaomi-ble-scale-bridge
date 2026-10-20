@@ -1,9 +1,39 @@
+import java.util.Properties
+
 plugins { id("com.android.application"); kotlin("android"); id("org.jetbrains.kotlin.plugin.compose") }
+
+val releaseSigning: Map<String, String>? = run {
+    val path = System.getenv("S200_KEYSTORE_PROPERTIES") ?: rootProject.file("keystore.properties").takeIf { it.exists() }?.path
+    val props = path?.let { f -> Properties().apply { file(f).inputStream().use(::load) } }
+    fun pick(key: String, env: String) = props?.getProperty(key) ?: System.getenv(env)
+    val m = mapOf(
+        "storeFile" to pick("storeFile", "S200_STORE_FILE"), "storePassword" to pick("storePassword", "S200_STORE_PASSWORD"),
+        "keyAlias" to pick("keyAlias", "S200_KEY_ALIAS"), "keyPassword" to pick("keyPassword", "S200_KEY_PASSWORD"),
+    )
+    if (m.values.all { it != null } && file(m["storeFile"]!!).exists()) m.mapValues { it.value!! } else null
+}
+
 android {
     namespace = "dev.lorenzo.s200.bridge"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
     defaultConfig { applicationId = "dev.lorenzo.s200.bridge"; minSdk = 34; targetSdk = 36; versionCode = 5; versionName = "0.5" }
+    signingConfigs {
+        if (releaseSigning != null) create("release") {
+            storeFile = file(releaseSigning.getValue("storeFile"))
+            storePassword = releaseSigning.getValue("storePassword")
+            keyAlias = releaseSigning.getValue("keyAlias")
+            keyPassword = releaseSigning.getValue("keyPassword")
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("release")
+        }
+    }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     buildFeatures { compose = true }
 }

@@ -1,0 +1,5 @@
+-keep class * extends androidx.work.ListenableWorker { public <init>(android.content.Context, androidx.work.WorkerParameters); }
+-keep class * extends android.companion.CompanionDeviceService { <init>(); }
+-keep class * extends android.content.BroadcastReceiver { <init>(); }
+-keep class androidx.health.platform.client.proto.** { *; }
+-dontwarn androidx.health.platform.client.proto.**

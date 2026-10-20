@@ -18,3 +18,8 @@ btsnoop*.log
 *.cfa
 plugin/
 plugin-*/
+keystore.properties
+*.p12
+*.pem
+*-release.properties
+keys/
