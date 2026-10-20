@@ -25,14 +25,39 @@ fun formatDelta(kg: Double, prevKg: Double, locale: Locale = Locale.getDefault()
     return sign + formatKg(abs(d), locale)
 }
 
+fun presenceTestTitle(kg: Double, locale: Locale = Locale.getDefault()) = "Presence test: " + formatKg(kg, locale)
+
+fun presenceTestDetail(via: String, appearedMs: Long?, receivedMs: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+    val f = DateTimeFormatter.ofPattern("HH:mm:ss")
+    fun t(ms: Long) = f.format(Instant.ofEpochMilli(ms).atZone(zone))
+    return "via $via, appeared ${appearedMs?.let(::t) ?: "never"}, received ${t(receivedMs)}"
+}
+
 object WeighInNotifier {
     private const val CHANNEL = "weigh-ins"
 
-    fun post(ctx: Context, r: Reading, prev: Reading?) {
+    fun postPresenceTest(ctx: Context, r: Reading, detail: String) {
+        val nm = channel(ctx) ?: return
+        nm.notify(r.epochSec.toInt(), Notification.Builder(ctx, CHANNEL)
+            .setSmallIcon(R.drawable.ic_scale)
+            .setContentTitle(presenceTestTitle(r.kg))
+            .setContentText("($detail)")
+            .setStyle(Notification.BigTextStyle().bigText("($detail)"))
+            .setContentIntent(open(ctx)).setAutoCancel(true)
+            .build())
+    }
+
+    private fun channel(ctx: Context): NotificationManager? {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Weigh-ins", NotificationManager.IMPORTANCE_DEFAULT))
-        if (!nm.areNotificationsEnabled()) return
-        val open = PendingIntent.getActivity(ctx, 0, Intent(ctx, SetupActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        return nm.takeIf { it.areNotificationsEnabled() }
+    }
+
+    private fun open(ctx: Context) = PendingIntent.getActivity(ctx, 0, Intent(ctx, SetupActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+
+    fun post(ctx: Context, r: Reading, prev: Reading?) {
+        val nm = channel(ctx) ?: return
+        val open = open(ctx)
         val time = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
             .format(Instant.ofEpochSecond(r.epochSec).atZone(ZoneId.systemDefault()))
         val text = listOfNotNull(time, prev?.let { formatDelta(r.kg, it.kg) }).joinToString(" · ")

@@ -35,7 +35,25 @@ android {
         }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
+    flavorDimensions += "mode"
+    productFlavors {
+        create("full") {
+            dimension = "mode"
+            isDefault = true
+            manifestPlaceholders["appLabel"] = "S200 Bridge"
+            buildConfigField("boolean", "PRESENCE_ONLY", "false")
+            buildConfigField("String", "APP_NAME", "\"S200 Bridge\"")
+        }
+        create("presenceOnly") {
+            dimension = "mode"
+            applicationIdSuffix = ".presence"
+            versionNameSuffix = "-presence"
+            manifestPlaceholders["appLabel"] = "S200 Presence Test"
+            buildConfigField("boolean", "PRESENCE_ONLY", "true")
+            buildConfigField("String", "APP_NAME", "\"S200 Presence Test\"")
+        }
+    }
 }
 kotlin { jvmToolchain(17) }
 dependencies {

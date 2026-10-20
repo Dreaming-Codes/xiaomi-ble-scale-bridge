@@ -61,16 +61,28 @@ class ScaleCompanionService : CompanionDeviceService() {
 
     @RequiresApi(36)
     override fun onDevicePresenceEvent(event: DevicePresenceEvent) {
+        if (Mode.presenceOnly) Config(this).recordPresence(presenceEventName(event.event))
         react(presenceReaction(event.event))
     }
     @Deprecated("API < 36 path")
-    override fun onDeviceAppeared(info: AssociationInfo) { if (Build.VERSION.SDK_INT < 36) react(PresenceReaction.REARM_AND_BURST) }
+    override fun onDeviceAppeared(info: AssociationInfo) {
+        if (Build.VERSION.SDK_INT >= 36) return
+        if (Mode.presenceOnly) Config(this).recordPresence(PRESENCE_APPEARED)
+        react(PresenceReaction.REARM_AND_BURST)
+    }
     @Deprecated("API < 36 path")
-    override fun onDeviceDisappeared(info: AssociationInfo) { if (Build.VERSION.SDK_INT < 36) react(PresenceReaction.STOP) }
+    override fun onDeviceDisappeared(info: AssociationInfo) {
+        if (Build.VERSION.SDK_INT >= 36) return
+        if (Mode.presenceOnly) Config(this).recordPresence("BLE disappeared")
+        react(PresenceReaction.STOP)
+    }
 
     private fun react(r: PresenceReaction) {
         when (r) {
-            PresenceReaction.REARM_AND_BURST -> { Log.i("S200Companion", "appeared: " + Scanner.arm(this)); burstScan() }
+            PresenceReaction.REARM_AND_BURST -> {
+                if (!Mode.presenceOnly) Log.i("S200Companion", "appeared: " + Scanner.arm(this))
+                burstScan()
+            }
             PresenceReaction.STOP -> stopScan()
             PresenceReaction.IGNORE -> Unit
         }
@@ -88,7 +100,7 @@ class ScaleCompanionService : CompanionDeviceService() {
                 val data = r.scanRecord?.getServiceData(Scanner.FE95) ?: return
                 val mac = r.device.address
                 scope.launch {
-                    runCatching { Bridge.handle(this@ScaleCompanionService, mac, data) }
+                    runCatching { Bridge.handle(this@ScaleCompanionService, mac, data, via = "presence burst") }
                         .onFailure { Log.w("S200Companion", "write failed, retry queued", it); enqueueRetry(applicationContext, mac, data) }
                 }
             }

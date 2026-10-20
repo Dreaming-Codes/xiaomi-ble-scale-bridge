@@ -14,6 +14,18 @@ fun presenceReaction(event: Int): PresenceReaction = when (event) {
     else -> PresenceReaction.IGNORE
 }
 
+fun presenceEventName(event: Int): String = when (event) {
+    DevicePresenceEvent.EVENT_BLE_APPEARED -> "BLE appeared"
+    DevicePresenceEvent.EVENT_BLE_DISAPPEARED -> "BLE disappeared"
+    DevicePresenceEvent.EVENT_BT_CONNECTED -> "BT connected"
+    DevicePresenceEvent.EVENT_BT_DISCONNECTED -> "BT disconnected"
+    else -> "event $event"
+}
+
+object Mode {
+    val presenceOnly: Boolean get() = BuildConfig.PRESENCE_ONLY
+}
+
 class ArmDebounce(private val windowMs: Long = 10_000, private val now: () -> Long = SystemClock::elapsedRealtime) {
     private var last = 0L
     fun recent(): Boolean = last != 0L && now() - last < windowMs

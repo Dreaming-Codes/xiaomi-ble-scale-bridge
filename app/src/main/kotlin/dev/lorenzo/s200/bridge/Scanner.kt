@@ -18,6 +18,7 @@ object Scanner {
     private const val TAG = "S200Scanner"
     val FE95: ParcelUuid = ParcelUuid.fromString("0000fe95-0000-1000-8000-00805f9b34fb")
     private val debounce = ArmDebounce()
+    const val SCAN_DISABLED = "disabled (presence-only)"
 
     fun filter(mac: ScaleMac): ScanFilter = ScanFilter.Builder()
         .setServiceData(FE95, byteArrayOf(0x48, 0x59), byteArrayOf(0xFF.toByte(), 0xFF.toByte()))
@@ -31,6 +32,7 @@ object Scanner {
 
     /** Debounced because Android blocks apps that start more than 5 scans in 30 s. */
     fun arm(ctx: Context): String {
+        if (Mode.presenceOnly) return SCAN_DISABLED
         val cfg = Config(ctx)
         val mac = cfg.mac
         if (mac == null || cfg.key == null) return "not configured"

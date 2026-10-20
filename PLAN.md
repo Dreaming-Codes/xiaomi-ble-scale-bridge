@@ -67,4 +67,5 @@ Verdict: **viable as a supplement, not reliable as the only trigger.** The Pendi
 - `:protocol`: pure JVM, AES-CCM on javax AES/ECB. Tests 3/3 pass: the xiaomi-ble vector gives 62.25 kg, profile 1, ts 1762728842; a wrong key and tampered data are rejected.
 - `:app`: `assembleDebug` OK. Untested on device. compileSdk/targetSdk 36, minSdk 34.
 - **Build:** set `sdk.dir` in `local.properties` (or `ANDROID_HOME`), then `gradle :protocol:test :app:assembleDebug`. JDK 17+ and Gradle 8.13+ are needed.
+- **Flavors:** `full` (default, `dev.lorenzo.s200.bridge`, `assembleFullRelease`) is the real bridge. `presenceOnly` (`dev.lorenzo.s200.bridge.presence`, "S200 Presence Test", `assemblePresenceOnlyRelease`) installs alongside it: no PendingIntent scan, no Health Connect writes, no GATT ack. CDM presence "appeared" runs the 60 s burst scan only; decoded weigh-ins go to in-app history plus a "Presence test" notification, and every presence event is logged in the UI.
   - NixOS: `nix-build sdk.nix -o .android-sdk` gives platform 36 and build-tools 36.0.0. Then set `android.aapt2FromMavenOverride` (see gradle.properties).

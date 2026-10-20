@@ -48,7 +48,7 @@ class RetryWorker(ctx: Context, p: WorkerParameters) : CoroutineWorker(ctx, p) {
     override suspend fun doWork(): Result {
         val mac = inputData.getString("mac") ?: return Result.failure()
         val data = inputData.getByteArray("data") ?: return Result.failure()
-        return try { Bridge.handle(applicationContext, mac, data); Result.success() }
+        return try { Bridge.handle(applicationContext, mac, data, via = "retry"); Result.success() }
         catch (t: Throwable) { if (runAttemptCount < 5) Result.retry() else Result.failure() }
     }
 }
