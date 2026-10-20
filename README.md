@@ -75,5 +75,4 @@ The app needs three values from your Xiaomi account: the bind key, the BLE token
 
 ## Learn how it works
 
-- [PLAN.md](PLAN.md) covers the background scan, the Health Connect write, and the Android limits that shaped them.
-- [docs/gatt-ack.md](docs/gatt-ack.md) covers the Bluetooth login that stops the scale's Bluetooth icon from blinking.
+[docs/gatt-ack.md](docs/gatt-ack.md) covers the Bluetooth login that stops the scale's Bluetooth icon from blinking.
