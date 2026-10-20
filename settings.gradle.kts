@@ -1,4 +1,4 @@
 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
 dependencyResolutionManagement { repositories { google(); mavenCentral() } }
 rootProject.name = "s200-bridge"
-include(":protocol", ":app")
+include(":protocol", ":xiaomicloud", ":app")

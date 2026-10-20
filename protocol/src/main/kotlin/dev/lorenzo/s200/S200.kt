@@ -2,6 +2,8 @@ package dev.lorenzo.s200
 
 @JvmInline
 value class BindKey private constructor(val bytes: ByteArray) {
+    val hex: String get() = bytes.toHex()
+
     companion object {
         fun parse(hex: String): BindKey? = hex.takeIf { it.matches(Regex("[0-9a-fA-F]{32}")) }?.let { BindKey(it.hexBytes()) }
     }

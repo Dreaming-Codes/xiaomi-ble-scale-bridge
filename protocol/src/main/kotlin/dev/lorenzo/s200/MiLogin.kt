@@ -5,6 +5,8 @@ import javax.crypto.spec.SecretKeySpec
 
 @JvmInline
 value class MiToken private constructor(val bytes: ByteArray) {
+    val hex: String get() = bytes.toHex()
+
     companion object {
         fun parse(hex: String): MiToken? = hex.takeIf { it.matches(Regex("[0-9a-fA-F]{24}")) }?.let { MiToken(it.hexBytes()) }
     }
@@ -72,5 +74,6 @@ class MiChannel(keys: SessionKeys, asDevice: Boolean = false) {
     }
 }
 
+internal fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 internal fun String.hexBytes(): ByteArray = replace(" ", "").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 internal fun le16(v: Int) = byteArrayOf(v.toByte(), (v ushr 8).toByte())
